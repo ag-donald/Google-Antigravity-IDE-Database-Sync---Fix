@@ -43,8 +43,17 @@ def safe_rollback(backup_path: str, target_path: str) -> None:
 # ==============================================================================
 def extract_existing_metadata(decoded: bytes) -> tuple[dict[str, str], dict[str, bytes]]:
     """
-    Extracts real titles and intact inner Protobuf blobs from the DB row.
-    Returns (titles_dict, inner_blobs_dict).
+    Parses the raw SQLite `trajectorySummaries` database payload (which contains a list of 
+    multiple conversation trajectories wrapped in Protobuf wrappers) to extract the actual 
+    human-readable titles and their raw, intact inner Protobuf binary states.
+    
+    Args:
+        decoded (bytes): The Base64-decoded Wire Type 2 byte string from the database.
+        
+    Returns:
+        tuple[dict[str, str], dict[str, bytes]]: 
+            - titles: A dictionary explicitly mapping `conversation_uuid` -> `title`.
+            - inner_blobs: A dictionary mapping `conversation_uuid` -> `raw_inner_bytes`.
     """
     titles = {}
     inner_blobs = {}
@@ -112,7 +121,24 @@ def extract_existing_metadata(decoded: bytes) -> tuple[dict[str, str], dict[str,
 
 
 def resolve_title(cid: str, existing_titles: dict[str, str], brain_dir: str, convs_dir: str) -> tuple[str, str]:
-    """Determine the best title. Returns (title, source)."""
+    """
+    Determines the absolute best, highly-descriptive title for a given conversation.
+    Evaluates inputs sequentially through a priority-ordered fallback matrix.
+    
+    Priority Matrix:
+      1. 'brain': Exact titles extracted from `.gemini/antigravity/brain/` markdown artifacts.
+      2. 'preserved': The existing title from the database (if it wasn't destroyed).
+      3. 'fallback': A heuristically generated "Conversation (Date) UUID" string based on filemtimes.
+      
+    Args:
+        cid (str): The specific conversation UUID string.
+        existing_titles (dict[str, str]): Pre-extracted mapping of preserved DB titles.
+        brain_dir (str): The exact absolute path to the artifacts cache.
+        convs_dir (str): The exact absolute path to the `.pb` session cache.
+        
+    Returns:
+        tuple[str, str]: The finalized title string and a tracking source label (e.g. 'brain').
+    """
     brain_title = ArtifactParser.extract_title(cid, brain_dir)
     if brain_title:
         return brain_title, "brain"
@@ -132,7 +158,17 @@ def resolve_title(cid: str, existing_titles: dict[str, str], brain_dir: str, con
 # MAIN EXECUTION ROUTINE
 # ==============================================================================
 def main() -> None:
-    """Five-phase recovery pipeline: preflight → discover → mapping → backup → inject."""
+    """
+    The master orchestration router for the Antigravity Recovery Suite.
+    
+    Executes a strict, fault-tolerant 6-Phase Pipeline:
+        1. Pre-flight Checks (File access, process locks)
+        2. Discovery & Metadata Extraction (Parsing raw `.pb` caches and broken DB rows)
+        3. Workspace Mapping (Interactive CLI and regex auto-inference bindings)
+        4. Secure Backup (Timestamped point-in-time snapshot creation)
+        5. Database Injection (Surgical, non-destructive JSON & Protobuf merges)
+        6. Summary Report (Terminal emission matching the recovery matrix)
+    """
 
     if "--help" in sys.argv or "-h" in sys.argv:
         print(f"""
@@ -316,9 +352,11 @@ def main() -> None:
     Logger.header("Phase 5: Database Injection")
 
     result_bytes = b""
-    ws_total = 0
-    ts_injected = 0
-    stats_json = {"json_added": 0, "json_patched": 0}
+    ws_total: int = 0
+    ts_injected: int = 0
+    
+    # Strictly typing this avoids severe Pyre lint errors about dict index augmentation
+    stats_json: dict[str, int] = {"json_added": 0, "json_patched": 0}
 
     # Prepare for JSON index injection
     conn = sqlite3.connect(db_path)

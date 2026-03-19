@@ -10,8 +10,17 @@ import urllib.parse
 from .logger import Logger
 
 
-def build_workspace_dict(path: str) -> dict:
-    """Builds the workspace dictionary required by the Protobuf schema from a local path."""
+def build_workspace_dict(path: str) -> dict[str, str]:
+    """
+    Constructs the standardized dictionary of workspace configuration strings
+    required by the Protobuf schema (Fields 9 and 17) mapping.
+    
+    Args:
+        path (str): The raw OS directory path selected by the user.
+        
+    Returns:
+        dict[str, str]: A mapped dictionary containing `uri_encoded`, `uri_plain`, etc.
+    """
     path_normalized = path.replace("\\", "/").rstrip("/")
     folder_name = os.path.basename(path_normalized) or "RecoveredProject"
     
@@ -46,11 +55,16 @@ def _prompt_valid_folder(prompt_text: str) -> str | None:
             Logger.warn("Make sure the folder exists. Try again or press Enter to skip.")
 
 
-def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]]) -> dict[str, dict]:
+def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]]) -> dict[str, dict[str, str]]:
     """
-    Show unmapped conversations and let user assign workspace paths.
-    unmapped_entries: list of (index, conversation_id, title)
-    Returns dict mapping conversation_id -> workspace_dict.
+    Executes an interactive terminal loop allowing the user to map orphaned
+    conversation indices to disk workspace directories.
+    
+    Args:
+        unmapped_entries (list[tuple[int, str, str]]): List of tuple metrics (index, session_id, title)
+        
+    Returns:
+        dict[str, dict[str, str]]: A mapping dictionary from session_id to the workspace_dict.
     """
     if not unmapped_entries:
         return {}
@@ -62,8 +76,8 @@ def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]
     Logger.info("or press Enter to skip and leave them unassigned.")
     print()
 
-    assignments = {}
-    batch_workspace = None
+    assignments: dict[str, dict[str, str]] = {}
+    batch_workspace: dict[str, str] | None = None
 
     for idx, cid, title in unmapped_entries:
         if batch_workspace:

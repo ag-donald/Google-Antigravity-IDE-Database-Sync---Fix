@@ -1,13 +1,19 @@
 """
-Agmercium Antigravity IDE History Recovery Tool — Source Package.
+Agmercium Recovery Suite
+========================
 
-This package provides all internal modules for the recovery tool.
-Import the ``main`` function from ``recovery`` to run the pipeline.
+The core python package implementing the deterministic Protobuf and SQLite 
+injection logic required to recover the Antigravity IDE UI indices.
 """
 
-from __future__ import annotations
-
-from .constants import VERSION, TOOL_NAME
+from .constants import VERSION
 
 __version__ = VERSION
-__all__ = ["VERSION", "TOOL_NAME"]
+__all__ = [
+    "ArtifactParser",
+    "EnvironmentResolver",
+    "Logger",
+    "ProtobufEncoder",
+    "interactive_workspace_assignment",
+    "main",
+]

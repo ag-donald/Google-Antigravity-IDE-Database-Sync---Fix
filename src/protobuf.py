@@ -96,7 +96,16 @@ class ProtobufEncoder:
 
     @staticmethod
     def decode_varint(data: bytes, pos: int) -> tuple[int, int]:
-        """Decode a Protobuf varint at the given position. Returns (value, new_pos)."""
+        """
+        Decode a Protobuf varint from raw bytes starting at the given position.
+        
+        Args:
+            data (bytes): The complete byte array to parse.
+            pos (int): The starting index for the varint.
+            
+        Returns:
+            tuple[int, int]: A tuple containing the decoded integer and the new byte position.
+        """
         result, shift = 0, 0
         while pos < len(data):
             b = data[pos]
@@ -124,8 +133,15 @@ class ProtobufEncoder:
     @classmethod
     def strip_field_from_protobuf(cls, data: bytes, target_field_number: int) -> bytes:
         """
-        Remove all instances of a specific field from raw protobuf bytes.
-        Returns the remaining bytes with the target field stripped out.
+        Iterates over a protobuf binary blob and selectively discards all
+        fields that match the target_field_number.
+        
+        Args:
+            data (bytes): The completely raw protobuf message blob.
+            target_field_number (int): The integer tag of the field to strip.
+            
+        Returns:
+            bytes: The new protobuf blob with the target field removed.
         """
         remaining = b""
         pos = 0
@@ -136,15 +152,20 @@ class ProtobufEncoder:
             except Exception:
                 remaining += data[start_pos:]
                 break
+            
             wire_type = tag & 7
             field_num = tag >> 3
             new_pos = cls.skip_protobuf_field(data, pos, wire_type)
+            
             if new_pos == pos and wire_type not in (0, 1, 2, 5):
-                # Unknown wire type — keep everything from here to avoid corruption
+                # Unknown wire type encountered. To prevent destructive corruption 
+                # of subsequent fields, preserve the rest of the blob blindly.
                 remaining += data[start_pos:]
                 break
             pos = new_pos
+            
             if field_num != target_field_number:
+                # Retain fields that are NOT the target
                 remaining += data[start_pos:pos]
         return remaining
 

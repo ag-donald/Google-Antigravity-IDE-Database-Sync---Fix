@@ -18,11 +18,20 @@ class ArtifactParser:
     @staticmethod
     def extract_title(conv_uuid: str, brain_dir: str) -> str | None:
         """
-        Attempts to extract a meaningful title from the brain artifacts
-        for a given conversation UUID, using a priority-ordered fallback chain:
-          1. First Markdown heading in task.md / implementation_plan.md / walkthrough.md
-          2. First meaningful line in .system_generated/logs/overview.txt
-          3. None (caller generates a timestamp-based fallback)
+        Attempts to extract a human-readable title from the brain artifacts
+        for a given conversation UUID, utilizing a priority-ordered fallback chain.
+        
+        Fallback Sequence:
+          1. First Markdown heading (#) in task.md / implementation_plan.md / walkthrough.md
+          2. First strictly meaningful line in .system_generated/logs/overview.txt
+          3. None (Caller will generate a timestamp-based fallback string)
+          
+        Args:
+            conv_uuid (str): The specific conversation UUID.
+            brain_dir (str): The absolute path to the .gemini/antigravity/brain/ cache.
+            
+        Returns:
+            str | None: The extracted title string or None if unrecoverable.
         """
         target_dir = os.path.join(brain_dir, conv_uuid)
         if not os.path.isdir(target_dir):
@@ -69,9 +78,18 @@ class ArtifactParser:
     @staticmethod
     def infer_workspace_from_brain(conv_uuid: str, brain_dir: str) -> str | None:
         """
-        Scan brain .md files for file:/// paths and infer the workspace
-        from the most common project folder prefix.
-        Returns an OS-native filesystem path string or None.
+        Heuristically scans internal metadata files (brain .md files) for embedded
+        `file:///` uniform resource identifiers in order to infer the developer's workspace.
+        
+        The heuristic relies on counting frequency: whichever root directory appears
+        most frequently across all associated markdown files is nominated as the workspace.
+        
+        Args:
+            conv_uuid (str): The specific conversation UUID.
+            brain_dir (str): The absolute path to the .gemini/antigravity/brain/ cache.
+            
+        Returns:
+            str | None: An OS-native filesystem path string (e.g. 'C:\\Projects\\App'), or None.
         """
         target_dir = os.path.join(brain_dir, conv_uuid)
         if not os.path.isdir(target_dir):
