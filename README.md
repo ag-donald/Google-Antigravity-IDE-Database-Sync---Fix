@@ -22,16 +22,47 @@ Google Antigravity IDE (a heavily modified VS Code fork powering agent-first AI 
 
 - Updating the IDE to a new version
 - Restarting the application
-- Certain shutdown sequences
+- Power outages or unclean shutdowns
+- Certain workspace/session transitions
 
-The underlying `.pb` conversation data files remain **fully intact** on disk at `~/.gemini/antigravity/conversations/`, but the IDE's internal SQLite database (`state.vscdb`) loses its UI index mappings, causing the sidebar to display zero history.
-
-This bug has been reported across multiple platforms:
-- [Google Developer Forums](https://google.dev) — multiple threads
-- [Reddit r/GoogleAntigravity](https://reddit.com) — widely discussed
-- In-app bug reports via **Report Issue** (under profile icon)
+The underlying `.pb` conversation data files remain **fully intact** on disk at `~/.gemini/antigravity/conversations/`, but the IDE's internal SQLite database (`state.vscdb`) loses its UI index mappings — specifically the `ChatSessionStore.index` (JSON) and `trajectorySummaries` (Protobuf) — causing the sidebar to display zero history.
 
 **This tool rebuilds those internal indices from your intact `.pb` files, restoring your full conversation history.**
+
+### Community Bug Reports
+
+This is a **widely reported issue** across the Google AI Developers Forum, Reddit, and in-app feedback channels. Below are verified, direct links to community threads documenting this exact behavior:
+
+#### Google AI Developers Forum (discuss.ai.google.dev)
+
+| Thread | Author | Description |
+|--------|--------|-------------|
+| [[BUG] Chat history lost after Antigravity update — ChatSessionStore index reset to empty](https://discuss.ai.google.dev/t/bug-chat-history-lost-after-antigravity-update-chatsessionstore-index-reset-to-empty/125625) | Daichi_Zaha | History disappeared after update on macOS; `ChatSessionStore.index` reset |
+| [[BUG] Conversation history lost after power outage — v1.20.5](https://discuss.ai.google.dev/t/bug-conversation-history-lost-after-power-outage-v1-20-5/133550) | MishaSER | 4 conversations (18.5 MB) intact on disk but UI shows zero after power loss |
+| [[BUG] [CRITICAL] v1.20.5 — Conversations Corrupted & Unrecoverable + Export Broken (macOS)](https://discuss.ai.google.dev/t/bug-critical-v1-20-5-conversations-corrupted-unrecoverable-export-broken-macos/130547) | jc-myths | All new conversations lost after auto-update to v1.20.5 on macOS |
+| [🚨 Critical Regression — Chat Freeze, Conversation History Loss & Pro Plan Limit Concerns (Windows 10)](https://discuss.ai.google.dev/t/critical-regression-in-latest-antigravity-version-chat-freeze-conversation-history-loss-pro-plan-limit-concerns-windows-10/125651) | ANURAJ_RAI | Disappearing history + session persistence issues after Feb 2026 update |
+| [[Bug/Help] Antigravity 1.18.x/1.19.x: Chat history completely disabled/lost for "scratch" sessions](https://discuss.ai.google.dev/t/bug-help-antigravity-1-18-x-1-19-x-chat-history-completely-disabled-lost-for-scratch-sessions-after-upgrading-from-1-16-5/127132) | Red_Tom | All history inaccessible after upgrading from v1.16.5; red "disabled" icon |
+| [I have lost conversation history in the with early update app](https://discuss.ai.google.dev/t/i-have-lost-conversation-history-in-the-with-early-update-app/124337) | Bun_Zie | History only remembers sessions from before the update |
+| [Missing conversations](https://discuss.ai.google.dev/t/missing-conversations/127818) | jnchacon | Sidebar shows conversations from wrong workspaces |
+| [Missing conversation in IDE (SSH)](https://discuss.ai.google.dev/t/missing-conversation-in-ide-ssh/130852/4) | Dark2002 | Conversations missing when using SSH remote development |
+| [Fix if you lost your session history with the new upgrade](https://discuss.ai.google.dev/t/fix-if-you-lost-your-session-history-with-the-new-upgrade-per-antigravity/127105) | Jimmy_Harrell | Community discussion on workarounds for post-update history loss |
+| [[BUG] Agent Manager chat window "self-deletes" on load error](https://discuss.ai.google.dev/t/bug-agent-manager-chat-window-self-deletes-on-load-error-but-agent-survives-in-workspace/114186) | Shannon_Green | Conversations disappear from Agent Manager UI on load errors |
+
+#### Reddit
+
+This issue is also widely discussed across multiple Reddit communities:
+
+- **r/GoogleAntigravityIDE** — Multiple threads about "chat history randomly disappears" and "losing prompt history"
+- **r/google_antigravity** — Discussions of workarounds including workspace re-binding and version rollbacks
+
+#### Root Cause
+
+The bug stems from the IDE's failure to atomically flush its two internal indices during shutdown:
+
+1. **`chat.ChatSessionStore.index`** (JSON) — Gets reset to `{"version":1,"entries":{}}` 
+2. **`antigravityUnifiedStateSync.trajectorySummaries`** (Protobuf) — Loses UUID-to-conversation mappings
+
+The raw `.pb` data files at `~/.gemini/antigravity/conversations/` and brain artifacts at `~/.gemini/antigravity/brain/` are **never affected**. This means the data is fully recoverable — which is exactly what this tool does.
 
 ---
 
