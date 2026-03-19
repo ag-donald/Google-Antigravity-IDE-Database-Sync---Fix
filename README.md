@@ -123,14 +123,19 @@ This tool:
 ### Architecture
 
 ```
-antigravity_recover.py
-├── Logger              — Unified, severity-tagged console output
-├── ProtobufEncoder     — Deterministic Protobuf Wire Format encoder
-├── EnvironmentResolver — Cross-platform path discovery (Win/Mac/Linux)
-├── ArtifactParser      — Brain artifact title extraction
-├── prompt_workspace()  — Interactive CLI for project registration
-├── safe_rollback()     — Fault-tolerant database restoration
-└── main()              — 5-phase orchestration pipeline
+antigravity_recover.py        ← Thin entry point (invokes src.recovery.main)
+├── src/
+│   ├── __init__.py           ← Package init, exposes VERSION
+│   ├── constants.py          ← All constants, DB keys, patterns, version
+│   ├── logger.py             ← Unified, severity-tagged console output
+│   ├── protobuf.py           ← Deterministic Protobuf Wire Format encoder
+│   ├── environment.py        ← Cross-platform path discovery (Win/Mac/Linux)
+│   ├── artifacts.py          ← Brain artifact title extraction
+│   ├── cli.py                ← Interactive CLI for project workspace registration
+│   └── recovery.py           ← 5-phase orchestration pipeline + safe_rollback()
+├── run.bat                   ← Windows CMD launcher
+├── run.ps1                   ← Windows PowerShell launcher
+└── run.sh                    ← Linux / macOS launcher
 ```
 
 ### Execution Phases

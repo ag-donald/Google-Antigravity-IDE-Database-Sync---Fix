@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-03-19
+
+### Fixed
+- **macOS launcher crash**: `run.sh` used GNU-only `grep -oP` which fails on macOS BSD grep — replaced with portable `sed`+`cut`
+
+### Added
+- Platform-specific launcher scripts: `run.bat` (Windows CMD), `run.ps1` (PowerShell), `run.sh` (Linux/macOS)
+- Modular `src/` package architecture: `constants`, `logger`, `protobuf`, `environment`, `artifacts`, `cli`, `recovery`
+- Project Structure section in `CONTRIBUTING.md`
+
+### Changed
+- Refactored monolithic script into 7 focused modules for maintainability
+- Updated README Architecture section to reflect `src/` package layout
+- Updated `CONTRIBUTING.md` syntax validation commands to cover all modules
+- Version bumped to 1.2.0
+
 ## [1.1.0] - 2026-03-19
 
 ### Fixed

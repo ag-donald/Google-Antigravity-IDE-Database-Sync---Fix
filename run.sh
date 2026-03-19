@@ -19,7 +19,7 @@ if command -v python3 &>/dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &>/dev/null; then
     # Verify it's Python 3, not Python 2
-    PY_VER=$(python --version 2>&1 | grep -oP '\d+' | head -1)
+    PY_VER=$(python --version 2>&1 | sed 's/[^0-9]*//' | cut -d. -f1)
     if [ "$PY_VER" -ge 3 ] 2>/dev/null; then
         PYTHON_CMD="python"
     else

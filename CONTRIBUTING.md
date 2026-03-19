@@ -26,7 +26,11 @@ Open an issue with the `enhancement` label describing:
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes
-4. Ensure the script passes syntax validation: `python -m py_compile antigravity_recover.py`
+4. Ensure all modules pass syntax validation:
+   ```bash
+   python -m py_compile antigravity_recover.py
+   python -c "from src.recovery import main"  # validates all src/ imports
+   ```
 5. Test on your platform (Windows, macOS, or Linux)
 6. Commit your changes: `git commit -m "Add: description of change"`
 7. Push to your fork: `git push origin feature/your-feature`
@@ -39,6 +43,22 @@ Open an issue with the `enhancement` label describing:
 - **Use the `Logger` class**: All console output must go through the unified `Logger` system
 - **Error handling**: All I/O operations must be wrapped in `try/except` with descriptive error messages
 - **Docstrings**: All public classes and methods must have docstrings
+- **Module placement**: New features go in the appropriate `src/` module — see Project Structure below
+
+### Project Structure
+
+```
+antigravity_recover.py   ← Entry point (thin — imports src.recovery.main)
+src/
+├── __init__.py          ← Package init
+├── constants.py         ← Shared constants (VERSION, DB keys, patterns)
+├── logger.py            ← Logger class
+├── protobuf.py          ← ProtobufEncoder class
+├── environment.py       ← EnvironmentResolver class
+├── artifacts.py         ← ArtifactParser class
+├── cli.py               ← Interactive CLI prompts
+└── recovery.py          ← Core 5-phase pipeline
+```
 
 ### Commit Message Format
 
