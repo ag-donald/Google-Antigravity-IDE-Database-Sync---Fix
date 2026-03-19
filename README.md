@@ -1,6 +1,14 @@
 # Antigravity IDE — Conversation History Recovery Tool
 
 <p align="center">
+  <a href="https://github.com/agmercium/antigravity-recovery/blob/main/LICENCE.md"><img src="https://img.shields.io/badge/License-Unlicense-blue.svg" alt="License: Unlicense"></a>
+  <a href="https://github.com/agmercium/antigravity-recovery/issues"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+  <a href="https://github.com/agmercium/antigravity-recovery"><img src="https://img.shields.io/badge/Open%20Source-100%25-green.svg" alt="Open Source: 100%"></a>
+  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.7+-blue.svg" alt="Python Version"></a>
+  <a href="https://github.com/agmercium/antigravity-recovery"><img src="https://img.shields.io/badge/Free-Forever-success.svg" alt="Free Forever"></a>
+</p>
+
+<p align="center">
   <strong>An unofficial, open-source workaround for the Google Antigravity IDE conversation history loss bug.</strong>
 </p>
 
