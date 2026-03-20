@@ -197,6 +197,10 @@ The TUI uses an **MVU (Model-View-Update) architecture** with 8 screens:
 
 #### 1. Home — Database Dashboard
 
+<p align="center">
+  <img src="docs/HomeView.png" alt="Home — Database Dashboard" width="700">
+</p>
+
 The default landing screen. Shows a split pane with all databases (current + backups) on the left and a health report on the right.
 
 | Key | Action |
@@ -234,6 +238,10 @@ The default landing screen. Shows a split pane with all databases (current + bac
 
 #### 2. Conversation Browser
 
+<p align="center">
+  <img src="docs/ConversationView.png" alt="Conversation Browser" width="700">
+</p>
+
 Browse, search, rename, and delete individual conversations. Split pane shows the conversation list on the left and details (UUID, workspace, timestamps, sync status) on the right.
 
 | Key | Action |
@@ -255,6 +263,10 @@ View the raw JSON payload of a specific conversation, scrollable with line count
 | `Esc` | Return to Conversation Browser |
 
 #### 4. Recovery Wizard
+
+<p align="center">
+  <img src="docs/RecoveryView.png" alt="Recovery Wizard" width="700">
+</p>
 
 Visual, guided execution of the 6-phase recovery pipeline with a real-time progress indicator:
 
