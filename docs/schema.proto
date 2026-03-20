@@ -5,7 +5,7 @@
 // METHODOLOGY:
 //   Every field below was extracted by a precision byte-level parser reading
 //   the live, working database at:
-//     C:\Users\donro\AppData\Roaming\Antigravity\User\globalStorage\state.vscdb
+//     %APPDATA%\Antigravity\User\globalStorage\state.vscdb
 //   Key: antigravityUnifiedStateSync.trajectorySummaries
 //
 //   The parser was specifically designed to AVOID recursive parsing of string
