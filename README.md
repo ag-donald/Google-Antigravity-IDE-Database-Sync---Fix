@@ -82,11 +82,28 @@ The raw `.pb` data files at `~/.gemini/antigravity/conversations/` and brain art
 
 ### Steps
 
+**Option A — Run from source:**
+
 ```bash
 # 1. Close Antigravity IDE completely (mandatory!)
 
 # 2. Run the recovery script
 python antigravity_database_manager.py
+
+# 3. Follow the interactive prompts
+
+# 4. Reopen Antigravity IDE — your history is back!
+```
+
+**Option B — Portable binary (no install needed):**
+
+Download `AgmerciumRecovery.pyz` from the [latest release](https://github.com/ag-donald/Antigravity-Database-Manager/releases) and run it directly:
+
+```bash
+# 1. Close Antigravity IDE completely (mandatory!)
+
+# 2. Run the portable binary
+python AgmerciumRecovery.pyz
 
 # 3. Follow the interactive prompts
 
