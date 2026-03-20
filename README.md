@@ -87,7 +87,7 @@ The raw `.pb` data files at `~/.gemini/antigravity/conversations/` and brain art
 # 1. Close Antigravity IDE completely (mandatory!)
 
 # 2. Run the recovery script
-python antigravity_recover.py
+python antigravity_database_manager.py
 
 # 3. Follow the interactive prompts
 
@@ -121,7 +121,7 @@ This tool:
 ### Architecture
 
 ```
-antigravity_recover.py        ← Thin entry point
+antigravity_database_manager.py        ← Thin entry point
 build_release.py              ← Builds the cross-platform .pyz zipapp
 ├── src/
 │   ├── core/                 ← Domain logic, models, and robust database operations
@@ -177,15 +177,15 @@ build_release.py              ← Builds the cross-platform .pyz zipapp
 ## CLI Options
 
 ```bash
-python antigravity_recover.py           # Interactive TUI (full-screen database manager)
-python antigravity_recover.py --headless # Headless interactive mode (no TUI)
-python antigravity_recover.py scan      # Scan current DB and all backups
-python antigravity_recover.py recover   # Run the full 6-phase recovery pipeline
-python antigravity_recover.py health    # Run a health check on the current database
-python antigravity_recover.py diagnose  # Scan database for Protobuf structural corruptions
-python antigravity_recover.py repair    # Autonomously repair detected corruptions
-python antigravity_recover.py --help    # Display help documentation
-python antigravity_recover.py --version # Display version number (v8.5.0)
+python antigravity_database_manager.py           # Interactive TUI (full-screen database manager)
+python antigravity_database_manager.py --headless # Headless interactive mode (no TUI)
+python antigravity_database_manager.py scan      # Scan current DB and all backups
+python antigravity_database_manager.py recover   # Run the full 6-phase recovery pipeline
+python antigravity_database_manager.py health    # Run a health check on the current database
+python antigravity_database_manager.py diagnose  # Scan database for Protobuf structural corruptions
+python antigravity_database_manager.py repair    # Autonomously repair detected corruptions
+python antigravity_database_manager.py --help    # Display help documentation
+python antigravity_database_manager.py --version # Display version number (v8.5.0)
 ```
 
 ### Building the Zipapp
@@ -203,10 +203,10 @@ Set the environment variable `AGMERCIUM_DEBUG=1` to enable verbose debug logging
 
 ```bash
 # Linux/macOS
-AGMERCIUM_DEBUG=1 python antigravity_recover.py
+AGMERCIUM_DEBUG=1 python antigravity_database_manager.py
 
 # Windows (PowerShell)
-$env:AGMERCIUM_DEBUG = "1"; python antigravity_recover.py
+$env:AGMERCIUM_DEBUG = "1"; python antigravity_database_manager.py
 ```
 
 ---

@@ -28,7 +28,7 @@ Open an issue with the `enhancement` label describing:
 3. Make your changes
 4. Ensure all modules pass syntax validation:
    ```bash
-   python -m py_compile antigravity_recover.py
+   python -m py_compile antigravity_database_manager.py
    python -c "from src.recovery import main"  # validates all src/ imports
    ```
 5. Test on your platform (Windows, macOS, or Linux)
@@ -48,7 +48,7 @@ Open an issue with the `enhancement` label describing:
 ### Project Structure
 
 ```
-antigravity_recover.py   ← Entry point
+antigravity_database_manager.py   ← Entry point
 src/
 ├── core/                ← Domain logic, models, and robust database operations
 │   ├── constants.py

@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **CRITICAL: Zero Conversations Bug** — `extract_existing_metadata` in `db_scanner.py` unconditionally sliced entries to just the UUID field, discarding the entire Base64 payload. Added the missing conditional check so double-wrap detection only triggers when Field 1 truly consumes the entire entry.
 - **NameError in Protobuf encoder** — `build_trajectory_entry` referenced an undefined `parent_uuid` variable when patching existing entries with workspace data. Replaced with the correct `conv_uuid` parameter.
-- **Version inconsistencies** — Synchronized version strings across `constants.py` (was `8.0.0`), `antigravity_recover.py` (was `7.0.0`), and `README.md` (was `v2.0.0`).
+- **Version inconsistencies** — Synchronized version strings across `constants.py` (was `8.0.0`), `antigravity_database_manager.py` (was `7.0.0`), and `README.md` (was `v2.0.0`).
 
 ### Changed
 - Removed dead `import uuid` from `protobuf.py`

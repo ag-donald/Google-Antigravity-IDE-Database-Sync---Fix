@@ -157,7 +157,7 @@ We have developed and released an open-source recovery tool that rebuilds both i
 
 ```bash
 # Close the IDE first (mandatory!)
-python antigravity_recover.py
+python antigravity_database_manager.py
 # Follow prompts → reopen IDE → history restored
 ```
 

@@ -18,13 +18,13 @@
   headless CLI automation, and safety-first atomic operations.
 
   Usage:
-    Interactive TUI:              python antigravity_recover.py
-    Headless interactive:         python antigravity_recover.py --headless
-    Direct commands:              python antigravity_recover.py scan
-                                  python antigravity_recover.py merge --source backup.vscdb
-                                  python antigravity_recover.py backup create
+    Interactive TUI:              python antigravity_database_manager.py
+    Headless interactive:         python antigravity_database_manager.py --headless
+    Direct commands:              python antigravity_database_manager.py scan
+                                  python antigravity_database_manager.py merge --source backup.vscdb
+                                  python antigravity_database_manager.py backup create
 
-  For help:  python antigravity_recover.py --help
+  For help:  python antigravity_database_manager.py --help
 
   GitHub:  https://github.com/agmercium/antigravity-recovery
   Issues:  https://github.com/agmercium/antigravity-recovery/issues
@@ -54,7 +54,7 @@ def main() -> None:
         args = cli_parser.parse_args()
 
         if cli_parser.has_subcommand(args):
-            # Direct headless command (e.g., `antigravity_recover.py scan`)
+            # Direct headless command (e.g., `antigravity_database_manager.py scan`)
             ctx.perform_preflight_checks()
             exit_code = cli_parser.execute(args, ctx)
             sys.exit(exit_code)

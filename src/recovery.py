@@ -115,7 +115,7 @@ def main() -> None:
 
   Usage:
     1. Close the Antigravity IDE completely.
-    2. Run: python antigravity_recover.py
+    2. Run: python antigravity_database_manager.py
     3. Follow the interactive prompts.
     4. Restart the Antigravity IDE.
 

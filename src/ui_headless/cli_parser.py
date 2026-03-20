@@ -22,18 +22,18 @@ from ..core import storage_manager as sm
 def build_parser() -> argparse.ArgumentParser:
     """Construct the full argument parser with all subcommands."""
     parser = argparse.ArgumentParser(
-        prog="antigravity_recover",
+        prog="antigravity_database_manager",
         description=f"{TOOL_NAME} v{VERSION} — Agmercium Database Management Hub",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  antigravity_recover.py scan\n"
-            "  antigravity_recover.py recover\n"
-            "  antigravity_recover.py merge --source path/to/backup.vscdb\n"
-            "  antigravity_recover.py backup list\n"
-            "  antigravity_recover.py backup restore 1\n"
-            "  antigravity_recover.py workspace list\n"
-            "  antigravity_recover.py storage inspect\n"
+            "  antigravity_database_manager.py scan\n"
+            "  antigravity_database_manager.py recover\n"
+            "  antigravity_database_manager.py merge --source path/to/backup.vscdb\n"
+            "  antigravity_database_manager.py backup list\n"
+            "  antigravity_database_manager.py backup restore 1\n"
+            "  antigravity_database_manager.py workspace list\n"
+            "  antigravity_database_manager.py storage inspect\n"
         ),
     )
     parser.add_argument("--version", "-v", action="version", version=f"{TOOL_NAME} v{VERSION}")
@@ -250,7 +250,7 @@ def _cmd_backup(args: argparse.Namespace, ctx: ApplicationContext) -> int:
             Logger.error(f"Restore failed: {result.error}")
             return 1
     else:
-        print("Usage: antigravity_recover.py backup {list|create|restore}")
+        print("Usage: antigravity_database_manager.py backup {list|create|restore}")
         return 1
 
 
@@ -333,7 +333,7 @@ def _cmd_conversations(args: argparse.Namespace, ctx: ApplicationContext) -> int
         return 1
         
     else:
-        print("Usage: antigravity_recover.py conversations {list|show|delete|rename}")
+        print("Usage: antigravity_database_manager.py conversations {list|show|delete|rename}")
         return 1
 
 
@@ -380,7 +380,7 @@ def _cmd_workspace(args: argparse.Namespace, ctx: ApplicationContext) -> int:
         return 1
 
     else:
-        print("Usage: antigravity_recover.py workspace {list|check|migrate}")
+        print("Usage: antigravity_database_manager.py workspace {list|check|migrate}")
         return 1
 
 
@@ -429,7 +429,7 @@ def _cmd_storage(args: argparse.Namespace, ctx: ApplicationContext) -> int:
             return 1
 
     else:
-        print("Usage: antigravity_recover.py storage {inspect|backup|patch|delete}")
+        print("Usage: antigravity_database_manager.py storage {inspect|backup|patch|delete}")
         return 1
 
 

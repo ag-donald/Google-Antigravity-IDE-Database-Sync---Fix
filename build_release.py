@@ -48,12 +48,12 @@ def build_zipapp(dist_dir: str) -> str:
         os.path.join(staging, "src"),
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    shutil.copy2(os.path.join(project_root, "antigravity_recover.py"), staging)
+    shutil.copy2(os.path.join(project_root, "antigravity_database_manager.py"), staging)
 
     # Create __main__.py for the archive
     main_py = os.path.join(staging, "__main__.py")
     with open(main_py, "w", encoding="utf-8") as f:
-        f.write("from antigravity_recover import main\nmain()\n")
+        f.write("from antigravity_database_manager import main\nmain()\n")
 
     # Build the archive
     output_path = os.path.join(dist_dir, "AgmerciumRecovery.pyz")
