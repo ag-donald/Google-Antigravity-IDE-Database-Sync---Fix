@@ -83,16 +83,6 @@ The raw `.pb` data files at `~/.gemini/antigravity/conversations/` and brain art
 
 ### Steps
 
-**Option A — Use the launcher script (recommended):**
-
-| Platform | Command |
-|----------|---------|
-| **Windows (CMD)** | Double-click `run.bat` or run it from a terminal |
-| **Windows (PowerShell)** | `.\run.ps1` |
-| **Linux / macOS** | `chmod +x run.sh && ./run.sh` |
-
-**Option B — Run Python directly:**
-
 ```bash
 # 1. Close Antigravity IDE completely (mandatory!)
 
@@ -132,6 +122,7 @@ This tool:
 
 ```
 antigravity_recover.py        ← Thin entry point
+build_release.py              ← Builds the cross-platform .pyz zipapp
 ├── src/
 │   ├── core/                 ← Domain logic, models, and robust database operations
 │   │   ├── constants.py
@@ -153,9 +144,8 @@ antigravity_recover.py        ← Thin entry point
 │       ├── cli_parser.py
 │       ├── controller.py
 │       └── logger.py
-├── run.bat                   ← Windows CMD launcher
-├── run.ps1                   ← Windows PowerShell launcher
-└── run.sh                    ← Linux / macOS launcher
+└── dist/
+    └── AgmerciumRecovery.pyz ← Portable zipapp (built)
 ```
 
 ### Execution Phases
@@ -179,7 +169,7 @@ antigravity_recover.py        ← Thin entry point
 | **macOS** | `~/Library/Application Support/antigravity/User/globalStorage/state.vscdb` | ✅ Supported |
 | **Linux** | `~/.config/antigravity/User/globalStorage/state.vscdb` | ✅ Supported |
 
-- **Python**: 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13+
+- **Python**: 3.10+
 - **Dependencies**: None (uses only Python standard library)
 
 ---
@@ -187,9 +177,24 @@ antigravity_recover.py        ← Thin entry point
 ## CLI Options
 
 ```bash
-python antigravity_recover.py           # Interactive recovery
+python antigravity_recover.py           # Interactive TUI (full-screen database manager)
+python antigravity_recover.py --headless # Headless interactive mode (no TUI)
+python antigravity_recover.py scan      # Scan current DB and all backups
+python antigravity_recover.py recover   # Run the full 6-phase recovery pipeline
+python antigravity_recover.py health    # Run a health check on the current database
+python antigravity_recover.py diagnose  # Scan database for Protobuf structural corruptions
+python antigravity_recover.py repair    # Autonomously repair detected corruptions
 python antigravity_recover.py --help    # Display help documentation
 python antigravity_recover.py --version # Display version number (v8.5.0)
+```
+
+### Building the Zipapp
+
+To build a portable, single-file zipapp (runs on any platform with Python 3.10+):
+
+```bash
+python build_release.py                 # Outputs dist/AgmerciumRecovery.pyz
+python dist/AgmerciumRecovery.pyz scan  # Run the built zipapp
 ```
 
 ### Debug Mode

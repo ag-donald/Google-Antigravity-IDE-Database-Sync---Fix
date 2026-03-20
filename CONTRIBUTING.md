@@ -38,7 +38,7 @@ Open an issue with the `enhancement` label describing:
 
 ### Code Standards
 
-- **Python 3.7+ compatibility**: Use `from __future__ import annotations` for modern type hints
+- **Python 3.10+ compatibility**: Use `from __future__ import annotations` for modern type hints
 - **Zero external dependencies**: Only standard library imports
 - **Use the `Logger` class**: All console output must go through the unified `Logger` system
 - **Error handling**: All I/O operations must be wrapped in `try/except` with descriptive error messages
