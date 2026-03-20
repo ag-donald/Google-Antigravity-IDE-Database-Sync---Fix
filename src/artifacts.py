@@ -20,16 +20,16 @@ class ArtifactParser:
         """
         Attempts to extract a human-readable title from the brain artifacts
         for a given conversation UUID, utilizing a priority-ordered fallback chain.
-        
+
         Fallback Sequence:
           1. First Markdown heading (#) in task.md / implementation_plan.md / walkthrough.md
           2. First strictly meaningful line in .system_generated/logs/overview.txt
           3. None (Caller will generate a timestamp-based fallback string)
-          
+
         Args:
             conv_uuid (str): The specific conversation UUID.
             brain_dir (str): The absolute path to the .gemini/antigravity/brain/ cache.
-            
+
         Returns:
             str | None: The extracted title string or None if unrecoverable.
         """
@@ -80,14 +80,14 @@ class ArtifactParser:
         """
         Heuristically scans internal metadata files (brain .md files) for embedded
         `file:///` uniform resource identifiers in order to infer the developer's workspace.
-        
+
         The heuristic relies on counting frequency: whichever root directory appears
         most frequently across all associated markdown files is nominated as the workspace.
-        
+
         Args:
             conv_uuid (str): The specific conversation UUID.
             brain_dir (str): The absolute path to the .gemini/antigravity/brain/ cache.
-            
+
         Returns:
             str | None: An OS-native filesystem path string (e.g. 'C:\\Projects\\App'), or None.
         """
@@ -116,12 +116,11 @@ class ArtifactParser:
                         raw = raw.replace("%3A", ":").replace("%3a", ":")
                         raw = raw.replace("%20", " ")
                         parts = raw.replace("\\", "/").split("/")
-                        
-                        # Windows typically needs 5 segments (C:/Users/name/Desktop/Project)
-                        # POSIX typically needs 4 segments (/home/name/projects/Project)
-                        depth = 5 if is_windows else 4
-                        if len(parts) >= depth:
-                            ws = "/".join(parts[:depth])
+
+                        # Tally all parent directories to find the most specific common ancestor
+                        depth_start = 4 if is_windows else 3
+                        for d in range(depth_start, len(parts)):
+                            ws = "/".join(parts[:d])
                             path_counts[ws] = path_counts.get(ws, 0) + 1
                 except OSError:
                     pass
@@ -131,5 +130,17 @@ class ArtifactParser:
         if not path_counts:
             return None
 
-        best = max(path_counts, key=lambda k: path_counts[k])
-        return best.replace("/", os.sep)
+        # Find the max frequency
+        max_count = max(path_counts.values())
+        # Out of all paths that share the maximum frequency, pick the longest one (deepest common ancestor)
+        best = max([k for k, v in path_counts.items() if v == max_count], key=len)
+        
+        candidate = best.replace("/", os.sep)
+        # Traverse upwards to find the true workspace root (marked by .git)
+        current = candidate
+        while current and os.path.dirname(current) != current:
+            if os.path.isdir(os.path.join(current, ".git")):
+                return current
+            current = os.path.dirname(current)
+            
+        return candidate

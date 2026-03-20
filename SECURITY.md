@@ -2,11 +2,11 @@
 
 ## Scope
 
-This tool operates **entirely offline** on local files. It:
+This Database Management Hub operates **entirely offline** on local files. It:
 - Makes **no network requests** of any kind
 - Reads only from `~/.gemini/antigravity/` (conversations, brain artifacts)
 - Writes only to the IDE's `state.vscdb` SQLite database
-- Creates a timestamped backup before any modifications
+- Creates a timestamped backup with descriptive suffixes before any modifications
 
 ## Reporting a Vulnerability
 

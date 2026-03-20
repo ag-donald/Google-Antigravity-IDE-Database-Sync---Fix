@@ -14,20 +14,24 @@ def build_workspace_dict(path: str) -> dict[str, str]:
     """
     Constructs the standardized dictionary of workspace configuration strings
     required by the Protobuf schema (Fields 9 and 17) mapping.
-    
+
     Args:
         path (str): The raw OS directory path selected by the user.
-        
+
     Returns:
         dict[str, str]: A mapped dictionary containing `uri_encoded`, `uri_plain`, etc.
     """
+    import sys
     path_normalized = path.replace("\\", "/").rstrip("/")
+    if sys.platform.startswith("win") and len(path_normalized) >= 2 and path_normalized[1] == ":":
+        path_normalized = path_normalized[0].lower() + path_normalized[1:]
+
     folder_name = os.path.basename(path_normalized) or "RecoveredProject"
-    
+
     uri_path_encoded = urllib.parse.quote(path_normalized, safe="/")
     uri_encoded = f"file:///{uri_path_encoded}"
     uri_plain = f"file:///{path_normalized}"
-    
+
     return {
         "uri_encoded": uri_encoded,
         "uri_plain": uri_plain,
@@ -59,10 +63,10 @@ def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]
     """
     Executes an interactive terminal loop allowing the user to map orphaned
     conversation indices to disk workspace directories.
-    
+
     Args:
         unmapped_entries (list[tuple[int, str, str]]): List of tuple metrics (index, session_id, title)
-        
+
     Returns:
         dict[str, dict[str, str]]: A mapping dictionary from session_id to the workspace_dict.
     """
@@ -92,7 +96,7 @@ def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]
                 raw = input("    Workspace path (Enter=skip, 'all'=batch, 'q'=stop): ").strip()
             except KeyboardInterrupt:
                 raw = "q"
-                
+
             if raw == "":
                 print("    Skipped.")
                 break
@@ -106,7 +110,7 @@ def interactive_workspace_assignment(unmapped_entries: list[tuple[int, str, str]
                 batch_workspace = build_workspace_dict(folder)
                 assignments[cid] = batch_workspace
                 break
-            
+
             folder = raw.strip('"').strip("'").rstrip("\\/")
             if os.path.isdir(folder):
                 Logger.success(f"Mapped to {folder}")

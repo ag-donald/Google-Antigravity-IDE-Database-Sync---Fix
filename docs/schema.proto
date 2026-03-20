@@ -1,0 +1,237 @@
+// ============================================================================
+// Antigravity IDE `trajectorySummaries` Protobuf Schema
+// Reverse-Engineered from Live Database (state.vscdb)
+//
+// METHODOLOGY:
+//   Every field below was extracted by a precision byte-level parser reading
+//   the live, working database at:
+//     C:\Users\donro\AppData\Roaming\Antigravity\User\globalStorage\state.vscdb
+//   Key: antigravityUnifiedStateSync.trajectorySummaries
+//
+//   The parser was specifically designed to AVOID recursive parsing of string
+//   and binary content to prevent false-positive field number detection.
+//
+// EVIDENCE BASE:
+//   Entry 1 ("Testing", simple chat):  Fields [1, 3, 4, 7, 9, 10]
+//   Entry 2 ("Fixing IDE Database Bug", active conversation):
+//     Fields [1, 2, 3, 4, 5, 7, 9, 10, 12, 14, 15, 16, 17]
+//
+// IMPORTANT: Fields 2, 5, 12, 14, 15, 16, 17 are ABSENT from simple/new chats.
+//   Proto3 omits zero-value fields, so these are populated only for active
+//   conversations with history.
+// ============================================================================
+
+syntax = "proto3";
+
+// ---------------------------------------------------------------------------
+// LAYER 1: Root container (NOT a named message in the wire format)
+//
+// The SQLite value is a base64 string. When decoded, the binary is simply a
+// concatenation of repeated Field 1 (TrajectorySummary) entries.
+// ---------------------------------------------------------------------------
+message UnifiedStateSync {
+  repeated TrajectorySummary entries = 1;
+}
+
+// ---------------------------------------------------------------------------
+// LAYER 2: Each conversation in the trajectory list
+// ---------------------------------------------------------------------------
+message TrajectorySummary {
+  // The conversation UUID string (36 chars, e.g. "1a5b7666-f926-4149-8c1f-7cc75669f100")
+  string uuid = 1;
+
+  // Wrapper containing a base64-encoded TrajectoryPayload
+  Base64Wrapper info = 2;
+}
+
+// ---------------------------------------------------------------------------
+// LAYER 3: Simple wrapper holding a single base64 string field
+// ---------------------------------------------------------------------------
+message Base64Wrapper {
+  // Pure ASCII base64 string. When decoded, yields a TrajectoryPayload binary.
+  string base64_payload = 1;
+}
+
+// ---------------------------------------------------------------------------
+// LAYER 4: The core metadata payload for each conversation
+//
+// VERIFIED FIELDS (with byte-level evidence from live database):
+//   F1  = string title                    ("Testing", "Fixing IDE Database Bug")
+//   F2  = int32  turn_count               (79, absent=0)
+//   F3  = Timestamp created_at            ({seconds: 1773958081, nanos: 234000000})
+//   F4  = string conversation_uuid        (redundant copy of parent UUID)
+//   F5  = int32  is_active                (1, absent=0)
+//   F7  = Timestamp updated_at            ({seconds: 1773959197, nanos: 311227300})
+//   F9  = WorkspaceInfo workspace         (nested message)
+//   F10 = Timestamp accessed_at           ({seconds: 1773959885, nanos: 671738800})
+//   F12 = TrajectoryStepBlob latest_step  (last assistant turn, contains tool calls)
+//   F14 = TrajectoryStepBlob prev_step    (previous assistant turn)
+//   F15 = TimestampWrapper step_timestamp (wraps a Timestamp in Field 7)
+//   F16 = int32  step_id                  (73)
+//   F17 = SessionContext session          (workspace snapshot + session UUID)
+// ---------------------------------------------------------------------------
+message TrajectoryPayload {
+  string title = 1;
+  int32 turn_count = 2;                   // Observed: 79 (absent for new chats)
+  Timestamp created_at = 3;
+  string conversation_uuid = 4;           // Redundant copy of TrajectorySummary.uuid
+  int32 is_active = 5;                    // Observed: 1 (absent for new chats)
+  Timestamp updated_at = 7;
+  WorkspaceInfo workspace = 9;
+  Timestamp accessed_at = 10;
+  TrajectoryStepBlob latest_step = 12;    // Absent for new/empty chats
+  TrajectoryStepBlob previous_step = 14;  // Absent for new/empty chats
+  TimestampWrapper step_timestamp = 15;   // Absent for new/empty chats
+  int32 step_id = 16;                     // Observed: 73 (absent for new chats)
+  SessionContext session = 17;            // Absent for new/empty chats
+}
+
+// ---------------------------------------------------------------------------
+// Standard Protobuf Timestamp (matches google.protobuf.Timestamp)
+// ---------------------------------------------------------------------------
+message Timestamp {
+  int64 seconds = 1;   // UTC seconds since Unix epoch
+  int32 nanos = 2;     // Non-negative fractions of a second at nanosecond resolution
+}
+
+// ---------------------------------------------------------------------------
+// F15 wraps a single Timestamp in Field 7 (reason unknown, possibly historical)
+// ---------------------------------------------------------------------------
+message TimestampWrapper {
+  Timestamp wrapped_timestamp = 7;
+}
+
+// ---------------------------------------------------------------------------
+// WORKSPACE INFO (Field 9)
+//
+// For a SIMPLE chat (Entry 1 "Testing"):
+//   F1 = "file:///h%3A/Personal/Programming/Agentic/Agmercium/projects/products/Ag-Argus"
+//   F2 = "file:///"
+//
+// For an ACTIVE chat (Entry 2 "Fixing IDE Database Bug"):
+//   F1 = same URI
+//   F2 = same URI (full, not just "file:///")
+//   F3 = GitContext { "ag-donald/Ag-Argus", "https://github.com/ag-donald/Ag-Argus" }
+//   F4 = "main"
+// ---------------------------------------------------------------------------
+message WorkspaceInfo {
+  string primary_uri = 1;       // URL-encoded workspace folder URI
+  string secondary_uri = 2;     // Mirrors primary_uri for active chats, "file:///" for simple
+  GitContext git_context = 3;    // Absent for simple chats
+  string branch = 4;            // Active git branch, e.g. "main"
+}
+
+// ---------------------------------------------------------------------------
+// GIT CONTEXT (Field 9.3)
+// ---------------------------------------------------------------------------
+message GitContext {
+  string repo_name = 1;         // "ag-donald/Ag-Argus"
+  string remote_url = 2;        // "https://github.com/ag-donald/Ag-Argus"
+}
+
+// ---------------------------------------------------------------------------
+// SESSION CONTEXT (Field 17)
+//
+// Contains a workspace snapshot with LOWERCASE (non-encoded) URIs,
+// a timestamp, a session UUID, and the encoded workspace URI.
+// ---------------------------------------------------------------------------
+message SessionContext {
+  SessionWorkspace workspace_snapshot = 1;  // Uses lowercase non-encoded URIs
+  Timestamp session_timestamp = 2;          // When session was established
+  string session_uuid = 3;                  // Unique session ID (different from conversation UUID)
+  string workspace_uri_encoded = 7;         // URL-encoded workspace URI (same as WorkspaceInfo.primary_uri)
+}
+
+// ---------------------------------------------------------------------------
+// SESSION WORKSPACE (Field 17.1)
+//
+// IMPORTANT: Uses LOWERCASE non-encoded URIs (file:///h:/...) 
+// NOT the URL-encoded form (file:///h%3A/...) used in WorkspaceInfo.
+// ---------------------------------------------------------------------------
+message SessionWorkspace {
+  string primary_uri_plain = 1;   // "file:///h:/Personal/Programming/..." (lowercase, non-encoded)
+  string secondary_uri_plain = 2; // Mirrors primary_uri_plain
+  GitContext git_context = 3;     // Same structure as WorkspaceInfo.GitContext
+  string branch = 4;              // "main"
+}
+
+// ---------------------------------------------------------------------------
+// TRAJECTORY STEP BLOB (Fields 12 and 14)
+//
+// Contains a single step wrapper (the last or previous assistant turn)
+// followed by a step index varint.
+// ---------------------------------------------------------------------------
+message TrajectoryStepBlob {
+  StepWrapper step = 1;
+  int32 step_index = 2;        // Observed: 72 (F12), 64 (F14)
+}
+
+// ---------------------------------------------------------------------------
+// STEP WRAPPER
+//
+// Wraps a single trajectory step with metadata.
+// ---------------------------------------------------------------------------
+message StepWrapper {
+  int32 step_id = 1;                   // Observed: 82 (F12), 81 (F14)
+  int32 step_type = 4;                 // Observed: 3
+  TrajectoryStep step_content = 5;     // The actual tool call data
+  AssistantResponse response_94 = 94;  // Present in F12 (notify_user response)
+  TaskBoundaryResponse response_93 = 93; // Present in F14 (task_boundary response)
+}
+
+// ---------------------------------------------------------------------------
+// TRAJECTORY STEP (StepWrapper.F5)
+//
+// Contains tool call information with parameter names and timestamps.
+// ---------------------------------------------------------------------------
+message TrajectoryStep {
+  Timestamp step_timestamp = 1;
+  int32 role = 3;                       // Observed: 2 (assistant)
+  bytes tool_call_content = 4;          // Nested ToolCall message
+  repeated string parameter_names = 5;  // Tool parameter names (e.g. "BlockedOnUser", "Message")
+  Timestamp unknown_ts_6 = 6;
+  Timestamp unknown_ts_7 = 7;
+  Timestamp unknown_ts_8 = 8;
+  int32 token_count = 11;              // Observed: 1037
+  string tool_call_uuid = 12;          // UUID for this specific tool call
+  bytes unknown_13 = 13;               // 3 bytes, purpose unknown
+  bytes unknown_20 = 20;               // 80 bytes, purpose unknown (possibly hash/signature)
+  int32 unknown_21 = 21;               // Observed: 1
+  Timestamp unknown_ts_22 = 22;
+  int32 unknown_23 = 23;               // Observed: 249 (F12), 73 (F14)
+}
+
+// ---------------------------------------------------------------------------
+// TOOL CALL (TrajectoryStep.F4)
+//
+// Represents a single tool invocation with its arguments and response.
+// ---------------------------------------------------------------------------
+message ToolCall {
+  string call_id = 1;           // Short random ID, e.g. "mw6xsyyh"
+  string tool_name = 2;        // e.g. "notify_user"
+  string arguments_json = 3;   // JSON-encoded arguments, e.g. "{}"
+  bytes response_blob = 7;     // Tool response (large binary blob, 3116B observed)
+}
+
+// ---------------------------------------------------------------------------
+// ASSISTANT RESPONSE (StepWrapper.F94)
+//
+// Contains the AI's text response for notify_user-style steps.
+// ---------------------------------------------------------------------------
+message AssistantResponse {
+  string response_text = 2;    // The full assistant message text
+  int32 response_type = 3;     // Observed: 1
+}
+
+// ---------------------------------------------------------------------------
+// TASK BOUNDARY RESPONSE (StepWrapper.F93)
+//
+// Contains task boundary metadata when the AI calls task_boundary.
+// ---------------------------------------------------------------------------
+message TaskBoundaryResponse {
+  string mode = 1;              // e.g. "Verification"
+  string task_status = 2;       // e.g. "Swapping the fresh golden build..."
+  string task_summary = 3;      // Full summary text
+  string task_name = 4;         // Full task name text  
+  int32 predicted_task_size = 5; // Observed: 2
+}

@@ -21,7 +21,6 @@ class ProtobufEncoder:
     # --- Encoding Helpers ---
 
     @staticmethod
-
     def write_varint(v: int) -> bytes:
         """Encode a non-negative integer as a Protobuf base-128 varint."""
         if v == 0:
@@ -59,17 +58,11 @@ class ProtobufEncoder:
     def build_workspace_field9(cls, ws: dict[str, str]) -> bytes:
         """
         Constructs the deeply nested Field 9 workspace metadata.
-        Schema: Field 9 { Field 1: uri, Field 2: uri, Field 3 { Field 1: corpus, Field 2: git_remote }, Field 4: branch }
+        Schema: Field 9 { Field 1: uri_encoded, Field 2: "file:///" }
         """
-        sub3_inner = (
-            cls.write_string_field(1, ws["corpus"])
-            + cls.write_string_field(2, ws["git_remote"])
-        )
         inner = (
             cls.write_string_field(1, ws["uri_encoded"])
-            + cls.write_string_field(2, ws["uri_encoded"])
-            + cls.write_bytes_field(3, sub3_inner)
-            + cls.write_string_field(4, ws["branch"])
+            + cls.write_string_field(2, "file:///")
         )
         return cls.write_bytes_field(9, inner)
 
@@ -98,11 +91,11 @@ class ProtobufEncoder:
     def decode_varint(data: bytes, pos: int) -> tuple[int, int]:
         """
         Decode a Protobuf varint from raw bytes starting at the given position.
-        
+
         Args:
             data (bytes): The complete byte array to parse.
             pos (int): The starting index for the varint.
-            
+
         Returns:
             tuple[int, int]: A tuple containing the decoded integer and the new byte position.
         """
@@ -131,43 +124,52 @@ class ProtobufEncoder:
         return pos
 
     @classmethod
-    def strip_field_from_protobuf(cls, data: bytes, target_field_number: int) -> bytes:
+    def patch_inner_protobuf(cls, data: bytes, updates: dict[int, bytes]) -> bytes:
         """
-        Iterates over a protobuf binary blob and selectively discards all
-        fields that match the target_field_number.
-        
-        Args:
-            data (bytes): The completely raw protobuf message blob.
-            target_field_number (int): The integer tag of the field to strip.
-            
-        Returns:
-            bytes: The new protobuf blob with the target field removed.
+        Parses `data` into fields, applies `updates` (where keys are field numbers
+        and values are the raw encoded bytes for that field), sorts all fields 
+        ascending by field number, and returns the strictly ordered Protobuf blob.
         """
-        remaining = b""
+        fields: list[tuple[int, bytes]] = []
         pos = 0
         while pos < len(data):
             start_pos = pos
             try:
                 tag, pos = cls.decode_varint(data, pos)
             except Exception:
-                remaining += data[start_pos:]
+                remaining = data[start_pos:]
+                if remaining:
+                    fields.append((-1, remaining))
                 break
-            
+
             wire_type = tag & 7
             field_num = tag >> 3
             new_pos = cls.skip_protobuf_field(data, pos, wire_type)
-            
+
             if new_pos == pos and wire_type not in (0, 1, 2, 5):
-                # Unknown wire type encountered. To prevent destructive corruption 
-                # of subsequent fields, preserve the rest of the blob blindly.
-                remaining += data[start_pos:]
+                remaining = data[start_pos:]
+                if remaining:
+                    fields.append((-1, remaining))
                 break
+            
+            fields.append((field_num, data[start_pos:new_pos]))
             pos = new_pos
             
-            if field_num != target_field_number:
-                # Retain fields that are NOT the target
-                remaining += data[start_pos:pos]
-        return remaining
+        # Filter out updated/deleted fields
+        retained = [(fn, raw) for fn, raw in fields if fn not in updates and fn != -1]
+        
+        # Add new/updated fields
+        for fn, raw in updates.items():
+            if raw:  
+                retained.append((fn, raw))
+                
+        # Sort strictly by ascending field number (canonical order)
+        retained.sort(key=lambda x: x[0])
+        
+        # Append any unparseable tail
+        tail = [raw for fn, raw in fields if fn == -1]
+        
+        return b"".join(raw for fn, raw in retained) + b"".join(tail)
 
     @classmethod
     def has_timestamp_fields(cls, inner_blob: bytes) -> bool:
@@ -238,52 +240,42 @@ class ProtobufEncoder:
     ) -> bytes:
         """
         Generates a complete trajectorySummaries entry with Base64-wrapped
-        inner Protobuf payload. 
-        
+        inner Protobuf payload.
+
         If `existing_inner_data` is provided, fields are patched non-destructively:
         - Field 1 (Title) is overwritten.
-        - Field 9 and 17 (Workspace) are injected/overwritten if `workspace` is active.
+        - Field 9 (Workspace) is injected/overwritten if `workspace` is active.
         - Fields 3, 7, 10 (Timestamps) are injected ONLY if entirely missing.
         """
-        parent_uuid = str(uuid.uuid4())
 
         if existing_inner_data:
-            # Strip Field 1 so we can inject the fresh title securely
-            preserved_fields = cls.strip_field_from_protobuf(existing_inner_data, 1)
-            inner_pb = cls.write_string_field(1, title) + preserved_fields
-            
-            # Conditionally inject/override workspace config
+            updates = {
+                1: cls.write_string_field(1, title)
+            }
             if workspace:
-                inner_pb = cls.strip_field_from_protobuf(inner_pb, 9)
-                inner_pb = cls.strip_field_from_protobuf(inner_pb, 17)
-                inner_pb += cls.build_workspace_field9(workspace)
-                inner_pb += cls.build_workspace_field17(workspace, parent_uuid, modify_epoch)
-            
-            # Conditionally inject timestamps if they are entirely stripped
+                updates[9] = cls.build_workspace_field9(workspace)
+                
             if not cls.has_timestamp_fields(existing_inner_data):
-                inner_pb += (
-                    cls.write_timestamp(3, create_epoch)
-                    + cls.write_timestamp(7, modify_epoch)
-                    + cls.write_timestamp(10, modify_epoch)
-                )
+                updates[3] = cls.write_timestamp(3, create_epoch)
+                updates[4] = cls.write_string_field(4, conv_uuid)
+                updates[7] = cls.write_timestamp(7, modify_epoch)
+                updates[10] = cls.write_timestamp(10, modify_epoch)
+                
+            inner_pb = cls.patch_inner_protobuf(existing_inner_data, updates)
 
         else:
             # Standard pristine blob generation for completely missing/new conversations
             inner_pb = (
                 cls.write_string_field(1, title)
-                + cls.write_varint_field(2, step_count)
                 + cls.write_timestamp(3, create_epoch)
-                + cls.write_string_field(4, parent_uuid)
-                + cls.write_varint_field(5, 1)       # Status: ACTIVE
+                + cls.write_string_field(4, conv_uuid)
                 + cls.write_timestamp(7, modify_epoch)
                 + (cls.build_workspace_field9(workspace) if workspace else b"")
                 + cls.write_timestamp(10, modify_epoch)
-                + cls.write_string_field(15, "")
-                + cls.write_varint_field(16, 0)
-                + (cls.build_workspace_field17(workspace, parent_uuid, modify_epoch) if workspace else b"")
             )
 
         inner_b64 = base64.b64encode(inner_pb).decode("utf-8")
         wrapper = cls.write_string_field(1, inner_b64)
         entry = cls.write_string_field(1, conv_uuid) + cls.write_bytes_field(2, wrapper)
-        return cls.write_bytes_field(1, entry)
+        outer = cls.write_bytes_field(1, entry)
+        return cls.write_bytes_field(1, outer)

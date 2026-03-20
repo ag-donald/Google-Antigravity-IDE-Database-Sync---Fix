@@ -19,6 +19,7 @@ from .protobuf import ProtobufEncoder
 from .environment import EnvironmentResolver
 from .artifacts import ArtifactParser
 from .cli import interactive_workspace_assignment
+from .backup_manager import run_backup_menu
 
 
 # ==============================================================================
@@ -41,101 +42,26 @@ def safe_rollback(backup_path: str, target_path: str) -> None:
 # ==============================================================================
 # METADATA EXTRACTION
 # ==============================================================================
-def extract_existing_metadata(decoded: bytes) -> tuple[dict[str, str], dict[str, bytes]]:
-    """
-    Parses the raw SQLite `trajectorySummaries` database payload (which contains a list of 
-    multiple conversation trajectories wrapped in Protobuf wrappers) to extract the actual 
-    human-readable titles and their raw, intact inner Protobuf binary states.
-    
-    Args:
-        decoded (bytes): The Base64-decoded Wire Type 2 byte string from the database.
-        
-    Returns:
-        tuple[dict[str, str], dict[str, bytes]]: 
-            - titles: A dictionary explicitly mapping `conversation_uuid` -> `title`.
-            - inner_blobs: A dictionary mapping `conversation_uuid` -> `raw_inner_bytes`.
-    """
-    titles = {}
-    inner_blobs = {}
-    pos = 0
-
-    while pos < len(decoded):
-        try:
-            tag, pos = ProtobufEncoder.decode_varint(decoded, pos)
-        except Exception:
-            break
-        wire_type = tag & 7
-
-        if wire_type != 2:
-            break
-
-        length, pos = ProtobufEncoder.decode_varint(decoded, pos)
-        entry = decoded[pos:pos + length]
-        pos += length
-
-        ep, uid, info_b64 = 0, None, None
-        while ep < len(entry):
-            try:
-                t, ep = ProtobufEncoder.decode_varint(entry, ep)
-            except Exception:
-                break
-            fn, wt = t >> 3, t & 7
-            if wt == 2:
-                l, ep = ProtobufEncoder.decode_varint(entry, ep)
-                content = entry[ep:ep + l]
-                ep += l
-                if fn == 1:
-                    uid = content.decode('utf-8', errors='replace')
-                elif fn == 2:
-                    sp = 0
-                    try:
-                        _, sp = ProtobufEncoder.decode_varint(content, sp)
-                        sl, sp = ProtobufEncoder.decode_varint(content, sp)
-                        info_b64 = content[sp:sp + sl].decode('utf-8', errors='replace')
-                    except Exception:
-                        pass
-            elif wt == 0:
-                _, ep = ProtobufEncoder.decode_varint(entry, ep)
-            elif wt == 1:
-                ep += 8
-            elif wt == 5:
-                ep += 4
-            else:
-                break
-
-        if uid and info_b64:
-            try:
-                raw_inner = base64.b64decode(info_b64)
-                inner_blobs[uid] = raw_inner
-
-                ip = 0
-                _, ip = ProtobufEncoder.decode_varint(raw_inner, ip)
-                il, ip = ProtobufEncoder.decode_varint(raw_inner, ip)
-                title = raw_inner[ip:ip + il].decode('utf-8', errors='replace')
-                if not title.startswith("Conversation (") and not title.startswith("Conversation "):
-                    titles[uid] = title
-            except Exception:
-                pass
-
-    return titles, inner_blobs
+# Metadata extraction relies on the dedicated scanner module:
+from .db_scanner import extract_existing_metadata
 
 
 def resolve_title(cid: str, existing_titles: dict[str, str], brain_dir: str, convs_dir: str) -> tuple[str, str]:
     """
     Determines the absolute best, highly-descriptive title for a given conversation.
     Evaluates inputs sequentially through a priority-ordered fallback matrix.
-    
+
     Priority Matrix:
       1. 'brain': Exact titles extracted from `.gemini/antigravity/brain/` markdown artifacts.
       2. 'preserved': The existing title from the database (if it wasn't destroyed).
       3. 'fallback': A heuristically generated "Conversation (Date) UUID" string based on filemtimes.
-      
+
     Args:
         cid (str): The specific conversation UUID string.
         existing_titles (dict[str, str]): Pre-extracted mapping of preserved DB titles.
         brain_dir (str): The exact absolute path to the artifacts cache.
         convs_dir (str): The exact absolute path to the `.pb` session cache.
-        
+
     Returns:
         tuple[str, str]: The finalized title string and a tracking source label (e.g. 'brain').
     """
@@ -160,7 +86,7 @@ def resolve_title(cid: str, existing_titles: dict[str, str], brain_dir: str, con
 def main() -> None:
     """
     The master orchestration router for the Antigravity Recovery Suite.
-    
+
     Executes a strict, fault-tolerant 6-Phase Pipeline:
         1. Pre-flight Checks (File access, process locks)
         2. Discovery & Metadata Extraction (Parsing raw `.pb` caches and broken DB rows)
@@ -212,6 +138,18 @@ def main() -> None:
     Logger.banner()
 
     # ------------------------------------------------------------------
+    # Phase 0: Backup Scanner & Restore Menu
+    # ------------------------------------------------------------------
+    db_path_early = EnvironmentResolver.get_antigravity_db_path()
+    phase0_result = run_backup_menu(db_path_early)
+    if phase0_result == "restored":
+        print()
+        Logger.success("Backup restored successfully. You may now launch the Antigravity IDE.")
+        return
+    if phase0_result == "exit":
+        return
+
+    # ------------------------------------------------------------------
     # Phase 1: Pre-flight Checks
     # ------------------------------------------------------------------
     Logger.header("Phase 1: Pre-flight Checks")
@@ -219,6 +157,7 @@ def main() -> None:
     if EnvironmentResolver.is_antigravity_running():
         Logger.warn("Antigravity IDE appears to be running!")
         Logger.warn("The IDE will OVERWRITE our patches when it shuts down.")
+        ans = ""
         try:
             ans = input("   Are you absolutely sure you want to proceed? (y/N): ").strip().lower()
         except KeyboardInterrupt:
@@ -248,7 +187,7 @@ def main() -> None:
     # Phase 2: Conversation Discovery & Metadata Extraction
     # ------------------------------------------------------------------
     Logger.header("Phase 2: Discovery & Metadata Extraction")
-    
+
     try:
         raw_files = os.listdir(convs_dir)
     except OSError as exc:
@@ -272,7 +211,7 @@ def main() -> None:
         cur.execute("SELECT value FROM ItemTable WHERE key=?", (PB_KEY,))
         row = cur.fetchone()
         conn.close()
-        
+
         if row and row[0]:
             decoded = base64.b64decode(row[0])
             existing_titles, existing_inner_blobs = extract_existing_metadata(decoded)
@@ -296,13 +235,13 @@ def main() -> None:
         ws_flag = " [WS]" if has_ws else ""
         print(f"    [{i:3d}] {marker} {title[:50]}{ws_flag}")
 
-    print(f"  Legend: [+] brain  [~] preserved  [?] fallback  [WS] workspace")
-    
+    print("  Legend: [+] brain  [~] preserved  [?] fallback  [WS] workspace")
+
     # ------------------------------------------------------------------
     # Phase 3: Workspace Mapping
     # ------------------------------------------------------------------
     Logger.header("Phase 3: Workspace Mapping")
-    
+
     unmapped = [(i, cid, title) for i, (cid, title, _, inner_data, has_ws) in enumerate(resolved, 1) if not has_ws]
     ws_assignments = {}
 
@@ -316,14 +255,14 @@ def main() -> None:
         Logger.info("Auto-assigning workspaces from brain artifacts...")
         auto_count = 0
         from .cli import build_workspace_dict
-        
+
         for idx, cid, title in unmapped:
             inferred = ArtifactParser.infer_workspace_from_brain(cid, brain_dir)
             if inferred and os.path.isdir(inferred):
                 ws_assignments[cid] = build_workspace_dict(inferred)
                 auto_count += 1
                 print(f"    [{idx:3d}] -> {os.path.basename(inferred)}")
-        
+
         Logger.success(f"Auto-assigned {auto_count} workspace(s).")
 
         if choice == '2':
@@ -354,7 +293,7 @@ def main() -> None:
     result_bytes = b""
     ws_total: int = 0
     ts_injected: int = 0
-    
+
     # Strictly typing this avoids severe Pyre lint errors about dict index augmentation
     stats_json: dict[str, int] = {"json_added": 0, "json_patched": 0}
 
@@ -373,21 +312,21 @@ def main() -> None:
         for cid, title, source, inner_data, has_ws in resolved:
             ws_map = ws_assignments.get(cid)
             pb_path = os.path.join(convs_dir, f"{cid}.pb")
-            
+
             pb_mtime = int(os.path.getmtime(pb_path)) if os.path.exists(pb_path) else int(time.time())
             pb_ctime = int(os.path.getctime(pb_path)) if os.path.exists(pb_path) else int(time.time())
-            
+
             entry = ProtobufEncoder.build_trajectory_entry(
                 cid, title, ws_map, pb_ctime, pb_mtime, existing_inner_data=inner_data
             )
-            result_bytes += ProtobufEncoder.write_bytes_field(1, entry)
+            result_bytes += entry
 
             if has_ws or ws_map:
                 ws_total += 1
             if pb_mtime and (not inner_data or not ProtobufEncoder.has_timestamp_fields(inner_data)):
                 ts_injected += 1
-                
-            # JSON 
+
+            # JSON
             mtime_ms = pb_mtime * 1000
             if cid not in chat_idx.setdefault("entries", {}):
                 chat_idx["entries"][cid] = {
@@ -409,7 +348,7 @@ def main() -> None:
             cur.execute("UPDATE ItemTable SET value=? WHERE key=?", (encoded_pb, PB_KEY))
         else:
             cur.execute("INSERT INTO ItemTable (key, value) VALUES (?, ?)", (PB_KEY, encoded_pb))
-            
+
         cur.execute(
             "INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)",
             (JSON_KEY, json.dumps(chat_idx, ensure_ascii=False)),
@@ -417,7 +356,7 @@ def main() -> None:
 
         conn.commit()
         Logger.success("All changes committed successfully.")
-        
+
     except sqlite3.Error as exc:
         Logger.error(f"SQLite error: {exc}")
         safe_rollback(backup_db, db_path)
