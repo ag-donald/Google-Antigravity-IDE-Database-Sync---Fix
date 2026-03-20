@@ -9,8 +9,12 @@
 </p>
 
 <p align="center">
-  <strong>An official, open-source database manager and recovery tool for the Google Antigravity IDE.</strong>
+  <strong>An unofficial, open-source community database manager and recovery tool for the Google Antigravity IDE.</strong>
 </p>
+
+> **Disclaimer:** This is an **unofficial** community workaround project. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> •
@@ -41,7 +45,7 @@ The underlying `.pb` conversation data files remain **fully intact** on disk at 
 
 This is a **widely reported issue** across the Google AI Developers Forum, Reddit, GitHub, and YouTube. We have cataloged **11 distinct bug categories** with verified community reports, technical root cause analysis, and how this Database Manager solves each one:
 
-📋 **[Full Bug Catalog → BUGS.md](BUGS.md)**
+📋 **[Full Bug Catalog → BUGS_RESEARCH.md](BUGS_RESEARCH.md)**
 
 | # | Bug | Trigger |
 |---|-----|---------|
@@ -217,7 +221,7 @@ The default landing screen. Shows a split pane with all databases (current + bac
 | Merge From Another DB | Launch the Merge Wizard |
 | Workspace Diagnostics | Inspect workspace URI bindings and filesystem health |
 | Manage Storage | Open the Storage.json Browser |
-| Create Empty Database | Reset the database (backup created first) |
+| Reset Database (Empty) | Reset the database to empty (backup created first, with confirmation) |
 
 **Action Menu (backup database):**
 
@@ -347,10 +351,11 @@ python antigravity_database_manager.py scan --json     # JSON output
 #### `recover` — Full 6-Phase Recovery Pipeline
 
 ```bash
-python antigravity_database_manager.py recover
+python antigravity_database_manager.py recover          # Human-readable progress
+python antigravity_database_manager.py recover --json   # JSON output (for CI/CD)
 ```
 
-Runs backup → discovery → title extraction → Protobuf injection → JSON sync → summary. Outputs progress messages to stdout.
+Runs backup → discovery → title extraction → Protobuf injection → JSON sync → summary. Outputs progress messages to stdout. Use `--json` for machine-readable output.
 
 #### `health` — Database Health Check
 
@@ -413,7 +418,8 @@ python antigravity_database_manager.py create --output /path/to/new.vscdb
 python antigravity_database_manager.py conversations list                      # List all conversations
 python antigravity_database_manager.py conversations list --json               # JSON output
 python antigravity_database_manager.py conversations show <uuid>               # Show raw JSON payload
-python antigravity_database_manager.py conversations delete <uuid>             # Delete a conversation
+python antigravity_database_manager.py conversations delete <uuid>             # Delete (with confirmation)
+python antigravity_database_manager.py conversations delete <uuid> --force     # Delete (skip confirmation)
 python antigravity_database_manager.py conversations rename <uuid> "New Title" # Rename a conversation
 ```
 
@@ -445,7 +451,7 @@ python antigravity_database_manager.py storage delete "key.path"          # Dele
 | Flag | Description |
 |------|-------------|
 | `--headless` | Force headless interactive mode (no TUI) |
-| `--json` | Output results as JSON (available for `scan`, `health`, `diagnose`, `conversations list`, `workspace list`, `storage inspect`) |
+| `--json` | Output results as JSON (available for `scan`, `recover`, `health`, `diagnose`, `conversations list`, `workspace list`, `storage inspect`) |
 | `--version` / `-v` | Display version number |
 | `--help` / `-h` | Display help documentation |
 
@@ -546,7 +552,7 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## Disclaimer
 
-This is an **unofficial** community tool. It is **not** affiliated with, endorsed by, or supported by Google LLC or the Antigravity IDE team. Use at your own discretion. The tool creates automatic backups before any modifications to minimize risk.
+This is an **unofficial** community workaround project. It is **not** affiliated with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team. All product names, logos, and brands are property of their respective owners. Use at your own discretion. The tool creates automatic backups before any modifications to minimize risk.
 
 ---
 

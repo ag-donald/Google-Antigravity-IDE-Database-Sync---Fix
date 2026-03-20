@@ -1,4 +1,8 @@
-# Google Antigravity IDE — Bug Report & Workaround
+# [Unofficial Community Report] Google Antigravity IDE — Bug Report & Workaround
+
+> **Disclaimer:** This is an **unofficial**, independent, third-party report. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
 
 > **Component:** `ChatSessionStore` / `antigravityUnifiedStateSync`
 > **Severity:** Critical — Complete Data Loss (UI-level)
@@ -194,4 +198,4 @@ Email: contact@agmercium.com
 
 ---
 
-*This report was prepared using the Agmercium Antigravity IDE Database Management Hub v8.5.0.*
+*This report was prepared using the Agmercium Antigravity IDE Database Management Hub v8.5.1.*

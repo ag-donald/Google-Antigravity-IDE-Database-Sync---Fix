@@ -2,7 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+> **Disclaimer:** This is an **unofficial** community workaround project. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [8.5.1] - 2026-03-20
+
+### Fixed
+- **BUG-002:** `_trunc()` in `widgets.py` now uses ANSI-aware visible length, preventing visual artifacts from escape sequences.
+- **BUG-003:** HomeView `elif` chain restructured so shortcut keys work independently of selection changes.
+- **BUG-004:** TUI no longer freezes during recovery — renders a "Working…" frame before the blocking pipeline call.
+- **BUG-005:** TUI no longer freezes during merge diff loading — renders a "Loading diff…" frame first.
+- **BUG-007:** Scroll offset tracking added to ConversationBrowser, Home, and Storage views.
+- **BUG-009:** `patch_key` in `storage_manager.py` now performs JSON type coercion for booleans, numbers, and null.
+- **BUG-012:** "Create Empty Database" renamed to "Reset Database (Empty)" with double-confirmation overlay.
+
+### Added
+- **BUG-014:** PageUp/PageDown navigation in all scrollable TUI views.
+- **BUG-015:** `--json` flag for `recover` CLI subcommand (machine-readable output for CI/CD).
+- **BUG-016:** `--force` flag for `conversations delete` CLI subcommand (skips confirmation prompt).
+- **BUG-017:** Pagination for the headless `Browse Conversations` menu (previously limited to 20).
+- 9 new unit tests: `TestStorageManager` (6 tests) and `TestWidgetTrunc` (3 tests).
+
+### Changed
+- **BUG-001:** Removed misleading `__all__` from `core/__init__.py`.
+- **BUG-006:** Removed dead `ws_assignments` / `ws_choice` code from headless `_menu_recover`.
+- **BUG-008:** `build_release.py` zipapp interpreter set to `None` for cross-platform compatibility.
+- **BUG-010:** Fixed broken `BUGS.md` → `BUGS_RESEARCH.md` link in `README.md`.
+- **BUG-013:** Documented intent behind `sys.path` hack in `test_core.py`.
+- Extracted `_browse_conversation_detail` helper in headless `controller.py`.
+- All documentation files updated with explicit unofficial disclaimer.
 
 ## [8.5.0] - 2026-03-20
 

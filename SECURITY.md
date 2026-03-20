@@ -1,8 +1,12 @@
 # Security Policy
 
+> **Disclaimer:** This is an **unofficial** community workaround project. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
+
 ## Scope
 
-This Database Management Hub operates **entirely offline** on local files. It:
+This unofficial community Database Management Hub operates **entirely offline** on local files. It:
 - Makes **no network requests** of any kind
 - Reads only from `~/.gemini/antigravity/` (conversations, brain artifacts)
 - Writes only to the IDE's `state.vscdb` SQLite database

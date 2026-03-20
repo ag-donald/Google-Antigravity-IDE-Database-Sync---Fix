@@ -1,5 +1,9 @@
 # Contributing to Antigravity IDE Database Management Hub
 
+> **Disclaimer:** This is an **unofficial** community workaround project. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
+
 Thank you for your interest in contributing! This project exists to help the community work around a known bug in the Google Antigravity IDE. All contributions are welcome.
 
 ## How to Contribute
@@ -31,10 +35,14 @@ Open an issue with the `enhancement` label describing:
    python -m py_compile antigravity_database_manager.py
    python -c "from src.core.lifecycle import ApplicationContext"  # validates all src/ imports
    ```
-5. Test on your platform (Windows, macOS, or Linux)
-6. Commit your changes: `git commit -m "Add: description of change"`
-7. Push to your fork: `git push origin feature/your-feature`
-8. Open a Pull Request
+5. Run the full test suite:
+   ```bash
+   python -m unittest tests.test_core -v
+   ```
+6. Test on your platform (Windows, macOS, or Linux)
+7. Commit your changes: `git commit -m "Add: description of change"`
+8. Push to your fork: `git push origin feature/your-feature`
+9. Open a Pull Request
 
 ### Code Standards
 
@@ -49,6 +57,7 @@ Open an issue with the `enhancement` label describing:
 
 ```
 antigravity_database_manager.py   ← Entry point
+build_release.py                  ← Builds the cross-platform .pyz zipapp
 src/
 ├── core/                ← Domain logic, models, and robust database operations
 │   ├── constants.py
@@ -70,6 +79,8 @@ src/
     ├── cli_parser.py
     ├── controller.py
     └── logger.py
+tests/
+└── test_core.py         ← Unit tests (52 tests)
 ```
 
 ### Commit Message Format

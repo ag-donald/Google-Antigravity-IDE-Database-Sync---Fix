@@ -1,6 +1,10 @@
 # Antigravity IDE — Known Bugs & Database Manager Solutions
 
-> **This document catalogs every known failure mode** that causes conversation history loss in the Antigravity IDE. Each bug includes its trigger, symptoms, technical root cause, and how this Database Manager solves it.
+> **Disclaimer:** This is an **unofficial** community workaround project. It is **not** affiliated
+> with, endorsed by, sponsored by, or in any way related to Google LLC or the Antigravity IDE team.
+> All product names, logos, and brands are property of their respective owners.
+
+> **This document is an independent, community-authored catalog of every known failure mode** that causes conversation history loss in the Antigravity IDE. Each bug includes its trigger, symptoms, technical root cause, and how this Database Manager solves it.
 
 ---
 
