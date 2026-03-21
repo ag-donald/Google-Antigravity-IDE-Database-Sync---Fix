@@ -1,13 +1,22 @@
 """
-Low-level terminal I/O engine for the TUI.
+Enhanced Terminal I/O Engine for the TUI.
 
-Handles:
+Provides production-grade terminal management:
   - Raw keyboard input (msvcrt on Windows, tty/termios on POSIX)
   - VT100/ANSI sequence emission
   - Alternate Screen Buffer management
   - Cursor visibility control
-  - Terminal size detection
+  - Terminal size detection with resize events
+  - Double-buffered rendering with dirty-region diffing
+  - Non-blocking input with timeout for animation loops
+  - Frame timing with adaptive FPS
   - Guaranteed cleanup via atexit integration
+
+UX Best Practices enforced:
+  - Double buffering eliminates visual flicker
+  - Dirty-region rendering reduces CPU usage and prevents tearing
+  - Non-blocking input enables smooth animations without freezing
+  - Adaptive FPS saves CPU when idle, provides smooth motion when animating
 """
 
 from __future__ import annotations
@@ -16,6 +25,7 @@ import enum
 import os
 import re
 import sys
+import time
 from typing import Optional
 
 # Platform-specific raw input
@@ -29,6 +39,7 @@ if sys.platform == "win32":
 else:
     import tty
     import termios
+    import select
 
 
 # ==============================================================================
@@ -44,13 +55,23 @@ class Key(enum.Enum):
     ENTER = "enter"
     ESCAPE = "escape"
     TAB = "tab"
+    SHIFT_TAB = "shift_tab"
     BACKSPACE = "backspace"
     DELETE = "delete"
     HOME = "home"
     END = "end"
     PAGE_UP = "page_up"
     PAGE_DOWN = "page_down"
-    CHAR = "char"  # Regular character — check `.char` attribute
+    F1 = "f1"
+    F2 = "f2"
+    F3 = "f3"
+    F4 = "f4"
+    F5 = "f5"
+    CHAR = "char"        # Regular character — check `.char` attribute
+    CTRL_C = "ctrl_c"    # Ctrl+C
+    CTRL_S = "ctrl_s"    # Ctrl+S
+    CTRL_Z = "ctrl_z"    # Ctrl+Z
+    CTRL_R = "ctrl_r"    # Ctrl+R
     UNKNOWN = "unknown"
 
 
@@ -75,7 +96,17 @@ class KeyEvent:
 
 class TerminalEngine:
     """
-    Cross-platform terminal I/O engine.
+    Enhanced cross-platform terminal I/O engine.
+
+    Features:
+      - Double-buffered rendering with line-level diffing
+      - Non-blocking keyboard input with configurable timeout
+      - Adaptive frame timing (high FPS during animations, low when idle)
+      - Full VT100/ANSI sequence support
+
+    UX Best Practice: Double buffering and diff-based rendering prevent
+    visual flicker and minimize terminal output, resulting in a smoother,
+    more professional user experience.
 
     Usage::
 
@@ -83,7 +114,7 @@ class TerminalEngine:
         engine.enter_fullscreen()
         try:
             while True:
-                engine.paint(lines)
+                engine.paint(lines)   # Only redraws changed lines
                 key = engine.getch()
                 if key.key == Key.ESCAPE:
                     break
@@ -91,9 +122,17 @@ class TerminalEngine:
             engine.exit_fullscreen()
     """
 
+    # Target FPS settings
+    FPS_ACTIVE = 30     # During animations
+    FPS_IDLE = 5        # When idle (just checking for resize etc.)
+
     def __init__(self) -> None:
         self._in_fullscreen = False
         self._old_termios: Optional[list] = None
+        self._prev_frame: list[str] = []
+        self._last_size: tuple[int, int] = (0, 0)
+        self._frame_count: int = 0
+        self._last_frame_time: float = 0.0
 
     # ------------------------------------------------------------------
     # VT100 ANSI Sequences
@@ -103,6 +142,40 @@ class TerminalEngine:
     def _write(seq: str) -> None:
         """Write an escape sequence to stdout and flush immediately."""
         sys.stdout.write(seq)
+        sys.stdout.flush()
+
+    @staticmethod
+    def set_cursor_pos(row: int, col: int) -> None:
+        """Move cursor to (row, col) — 1-indexed."""
+        sys.stdout.write(f"\x1b[{row};{col}H")
+
+    @staticmethod
+    def clear_line() -> None:
+        """Clear the current line from cursor to end."""
+        sys.stdout.write("\x1b[K")
+
+    @staticmethod
+    def clear_screen() -> None:
+        """Clear the entire screen."""
+        sys.stdout.write("\x1b[2J\x1b[H")
+        sys.stdout.flush()
+
+    @staticmethod
+    def show_cursor() -> None:
+        """Make the cursor visible."""
+        sys.stdout.write("\x1b[?25h")
+        sys.stdout.flush()
+
+    @staticmethod
+    def hide_cursor() -> None:
+        """Make the cursor invisible."""
+        sys.stdout.write("\x1b[?25l")
+        sys.stdout.flush()
+
+    @staticmethod
+    def set_title(title: str) -> None:
+        """Set the terminal window title."""
+        sys.stdout.write(f"\x1b]0;{title}\x07")
         sys.stdout.flush()
 
     # ------------------------------------------------------------------
@@ -138,6 +211,8 @@ class TerminalEngine:
         self._write("\x1b[2J")      # Clear screen
         self._write("\x1b[H")       # Move to top-left
         self._in_fullscreen = True
+        self._prev_frame = []
+        self._last_size = (0, 0)
 
     def exit_fullscreen(self) -> None:
         """Restore terminal to normal state. Safe to call multiple times."""
@@ -156,6 +231,7 @@ class TerminalEngine:
             self._old_termios = None
 
         self._in_fullscreen = False
+        self._prev_frame = []
 
     # ------------------------------------------------------------------
     # Terminal Size
@@ -169,6 +245,13 @@ class TerminalEngine:
             return max(cols, 40), max(rows, 10)
         except OSError:
             return 80, 24  # Fallback
+
+    def size_changed(self) -> bool:
+        """Check if terminal size changed since last check."""
+        current = self.get_size()
+        changed = current != self._last_size
+        self._last_size = current
+        return changed
 
     # ------------------------------------------------------------------
     # ANSI Helpers
@@ -200,42 +283,70 @@ class TerminalEngine:
             i += 1
         return s[:i]
 
+    @classmethod
+    def _strip_ansi(cls, s: str) -> str:
+        """Remove all ANSI escape sequences."""
+        return cls._ANSI_RE.sub("", s)
+
     # ------------------------------------------------------------------
-    # Rendering
+    # Double-Buffered Rendering
     # ------------------------------------------------------------------
 
     def paint(self, lines: list[str]) -> None:
         """
-        Render a full frame to the terminal.
+        Render a full frame to the terminal using double-buffered diffing.
 
-        Uses explicit cursor positioning (``\x1b[row;1H``) for each row so
-        ANSI escape codes inside the lines never upset the layout.
-        Pads each row to the full terminal width to prevent ghosting.
+        Only redraws lines that changed since the previous frame.
+        Lines are truncated to terminal width and padded to prevent ghosting.
+
+        UX Best Practice: Diff-based rendering eliminates flicker and reduces
+        I/O overhead, making the UI feel smooth and responsive.
         """
         cols, rows = self.get_size()
-
         buf: list[str] = []
+        full_repaint = len(self._prev_frame) != rows
 
         for i in range(rows):
-            # Position cursor at column 1 of this row
-            buf.append(f"\x1b[{i + 1};1H")
-
             if i < len(lines):
                 line = lines[i].rstrip("\n")
-                # Truncate to visible width
                 line = self._truncate_visible(line, cols)
-                # Pad with spaces so the full row is overwritten
                 vis = self._visible_len(line)
-                pad = max(0, cols - vis)
-                buf.append(line + " " * pad)
+                padding = max(0, cols - vis)
+                rendered = line + " " * padding
             else:
-                buf.append(" " * cols)
+                rendered = " " * cols
 
-        sys.stdout.write("".join(buf))
-        sys.stdout.flush()
+            # Only emit if this line changed (or on full repaint)
+            if full_repaint or i >= len(self._prev_frame) or self._prev_frame[i] != rendered:
+                buf.append(f"\x1b[{i + 1};1H")
+                buf.append(rendered)
+
+        if buf:
+            sys.stdout.write("".join(buf))
+            sys.stdout.flush()
+
+        # Store current frame as reference for next diff
+        new_frame: list[str] = []
+        for i in range(rows):
+            if i < len(lines):
+                line = lines[i].rstrip("\n")
+                line = self._truncate_visible(line, cols)
+                vis = self._visible_len(line)
+                padding = max(0, cols - vis)
+                new_frame.append(line + " " * padding)
+            else:
+                new_frame.append(" " * cols)
+        self._prev_frame = new_frame
+
+        self._frame_count += 1
+        self._last_frame_time = time.monotonic()
+
+    def invalidate(self) -> None:
+        """Force a full repaint on the next paint() call."""
+        self._prev_frame = []
 
     # ------------------------------------------------------------------
-    # Raw Keyboard Input
+    # Raw Keyboard Input — Blocking
     # ------------------------------------------------------------------
 
     def getch(self) -> KeyEvent:
@@ -250,6 +361,65 @@ class TerminalEngine:
         else:
             return self._getch_posix()
 
+    # ------------------------------------------------------------------
+    # Raw Keyboard Input — Non-Blocking (with timeout)
+    # ------------------------------------------------------------------
+
+    def poll_key(self, timeout_ms: int = 16) -> Optional[KeyEvent]:
+        """
+        Non-blocking key read with timeout.
+
+        Returns a KeyEvent if a key is available, or None if the timeout
+        expires without input.
+
+        UX Best Practice: Non-blocking input allows the event loop to run
+        animations and update spinners while waiting for user input.
+
+        Args:
+            timeout_ms: Maximum milliseconds to wait for input.
+        """
+        if sys.platform == "win32":
+            return self._poll_key_windows(timeout_ms)
+        else:
+            return self._poll_key_posix(timeout_ms)
+
+    def _poll_key_windows(self, timeout_ms: int) -> Optional[KeyEvent]:
+        """Windows non-blocking poll via msvcrt.kbhit()."""
+        deadline = time.monotonic() + (timeout_ms / 1000.0)
+        while time.monotonic() < deadline:
+            if msvcrt.kbhit():
+                return self._getch_windows()
+            time.sleep(0.005)  # 5ms granularity
+        return None
+
+    def _poll_key_posix(self, timeout_ms: int) -> Optional[KeyEvent]:
+        """POSIX non-blocking poll via select()."""
+        timeout_s = timeout_ms / 1000.0
+        ready, _, _ = select.select([sys.stdin], [], [], timeout_s)
+        if ready:
+            return self._getch_posix()
+        return None
+
+    # ------------------------------------------------------------------
+    # Frame Timing
+    # ------------------------------------------------------------------
+
+    def frame_delay(self, animating: bool = False) -> float:
+        """
+        Calculate the ideal delay before the next frame.
+
+        UX Best Practice: Adaptive frame rate — fast during animations
+        for smoothness, slow when idle to save CPU.
+        """
+        fps = self.FPS_ACTIVE if animating else self.FPS_IDLE
+        target_interval = 1.0 / fps
+        elapsed = time.monotonic() - self._last_frame_time
+        return max(0.0, target_interval - elapsed)
+
+    # ------------------------------------------------------------------
+    # Internal: Platform Keyboard Implementations
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _getch_windows() -> KeyEvent:
         """Windows raw key input via msvcrt."""
@@ -263,6 +433,14 @@ class TerminalEngine:
             return KeyEvent(Key.TAB)
         if ch == "\x08":
             return KeyEvent(Key.BACKSPACE)
+        if ch == "\x03":  # Ctrl+C
+            return KeyEvent(Key.CTRL_C)
+        if ch == "\x13":  # Ctrl+S
+            return KeyEvent(Key.CTRL_S)
+        if ch == "\x1a":  # Ctrl+Z
+            return KeyEvent(Key.CTRL_Z)
+        if ch == "\x12":  # Ctrl+R
+            return KeyEvent(Key.CTRL_R)
 
         # Extended key prefix (arrow keys, function keys, etc.)
         if ch in ("\x00", "\xe0"):
@@ -285,6 +463,19 @@ class TerminalEngine:
                 return KeyEvent(Key.PAGE_DOWN)
             if ch2 == "S":
                 return KeyEvent(Key.DELETE)
+            if ch2 == ";":
+                return KeyEvent(Key.F1)
+            if ch2 == "<":
+                return KeyEvent(Key.F2)
+            if ch2 == "=":
+                return KeyEvent(Key.F3)
+            if ch2 == ">":
+                return KeyEvent(Key.F4)
+            if ch2 == "?":
+                return KeyEvent(Key.F5)
+            # Shift+Tab
+            if ch2 == "\x0f":
+                return KeyEvent(Key.SHIFT_TAB)
             return KeyEvent(Key.UNKNOWN)
 
         return KeyEvent(Key.CHAR, ch)
@@ -300,6 +491,14 @@ class TerminalEngine:
             return KeyEvent(Key.TAB)
         if ch == "\x7f" or ch == "\x08":
             return KeyEvent(Key.BACKSPACE)
+        if ch == "\x03":  # Ctrl+C
+            return KeyEvent(Key.CTRL_C)
+        if ch == "\x13":  # Ctrl+S
+            return KeyEvent(Key.CTRL_S)
+        if ch == "\x1a":  # Ctrl+Z
+            return KeyEvent(Key.CTRL_Z)
+        if ch == "\x12":  # Ctrl+R
+            return KeyEvent(Key.CTRL_R)
 
         if ch == "\x1b":
             # Could be ESC or start of escape sequence
@@ -320,6 +519,8 @@ class TerminalEngine:
                     return KeyEvent(Key.HOME)
                 if ch3 == "F":
                     return KeyEvent(Key.END)
+                if ch3 == "Z":
+                    return KeyEvent(Key.SHIFT_TAB)
                 if ch3 == "5":
                     sys.stdin.read(1)  # consume '~'
                     return KeyEvent(Key.PAGE_UP)
@@ -329,6 +530,25 @@ class TerminalEngine:
                 if ch3 == "3":
                     sys.stdin.read(1)  # consume '~'
                     return KeyEvent(Key.DELETE)
+                if ch3 == "1":
+                    # Could be F1-F5 or other sequence
+                    ch4 = sys.stdin.read(1)
+                    if ch4 == "1":
+                        sys.stdin.read(1)  # consume '~'
+                        return KeyEvent(Key.F1)
+                    elif ch4 == "2":
+                        sys.stdin.read(1)
+                        return KeyEvent(Key.F2)
+                    elif ch4 == "3":
+                        sys.stdin.read(1)
+                        return KeyEvent(Key.F3)
+                    elif ch4 == "4":
+                        sys.stdin.read(1)
+                        return KeyEvent(Key.F4)
+                    elif ch4 == "5":
+                        sys.stdin.read(1)
+                        return KeyEvent(Key.F5)
+                    return KeyEvent(Key.UNKNOWN)
                 return KeyEvent(Key.UNKNOWN)
             return KeyEvent(Key.ESCAPE)
 

@@ -1,10 +1,16 @@
 """
-MVU Screen definitions for the TUI v8.
+MVU Screen definitions for the TUI.
 
 Each screen class implements the MVU pattern:
   - `model`: dataclass holding the screen's state
   - `update(key)`: mutates state or returns routing command
   - `view(cols, rows)`: returns list[str] frame representing output
+
+Now powered by the enterprise-grade component framework:
+  - Theme-aware rendering via semantic Styles
+  - Component composition (Header, DataTable, SplitPane, Modal, etc.)
+  - Animation support via Spinner and ProgressBar
+  - UX best practices enforced at every level
 """
 from __future__ import annotations
 import os, time
@@ -12,7 +18,17 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .engine import Key, KeyEvent
-from . import widgets as W
+from .theme import Style, STYLES, PALETTE, Icons, BORDER_ROUNDED, _Ansi
+from .core import (
+    visible_len, truncate, pad, pad_center, styled_line, horizontal_rule, Component,
+)
+from .components import (
+    Header, StatusBar, DataTable, TableColumn, TreeView, TreeNode,
+    TextInput, TextViewer, Modal, ConfirmDialog, ActionMenu,
+    ProgressBar, Spinner, ToastManager, Tabs, Breadcrumb,
+    SearchBar, Badge, SplitPane, ScrollView, WizardPipeline,
+    overlay_on,
+)
 from ..core.constants import VERSION, APP_NAME
 from ..core.models import (
     DatabaseSnapshot, MergeDiff, ConversationEntry, HealthReport,
@@ -24,17 +40,54 @@ from ..core.environment import EnvironmentResolver
 from ..core import storage_manager as sm
 
 
-def _overlay(bg: list[str], modal: list[str]) -> None:
-    h = len(bg)
-    start = max(0, (h - len(modal)) // 2)
-    for i, mline in enumerate(modal):
-        if 0 <= start + i < h:
-            bg[start + i] = mline
+# ==============================================================================
+# SHARED RENDERING HELPERS
+# ==============================================================================
+
+def _render_header(cols: int, subtitle: str = "") -> list[str]:
+    """
+    Render the application header using the Header component.
+
+    UX Best Practice: Consistent header across all views establishes
+    brand identity and navigation context.
+    """
+    header = Header(app_name=APP_NAME, version=VERSION, subtitle=subtitle)
+    return header.render(cols, 2)
+
+
+def _render_footer(cols: int, hints: list[tuple[str, str]], status: str = "",
+                   severity: str = "info") -> list[str]:
+    """
+    Render the status bar using the StatusBar component.
+
+    UX Best Practice: Key hints always visible for discoverability.
+    """
+    bar = StatusBar(hints=hints, status=status, status_severity=severity)
+    return bar.render(cols, 1)
+
+
+def _render_detail_panel(title: str, rows_data: list[tuple[str, str]],
+                         width: int) -> list[str]:
+    """
+    Render a labeled detail panel (key-value pairs).
+
+    UX Best Practice: Consistent detail panels with aligned labels
+    improve scannability of metadata.
+    """
+    lines: list[str] = [
+        STYLES.title.apply(title), ""
+    ]
+    max_label = max((len(k) for k, _ in rows_data), default=0) + 1
+    for key, value in rows_data:
+        label = pad(f"  {key}:", max_label + 3)
+        lines.append(STYLES.muted.apply(label) + STYLES.body.apply(f" {value}"))
+    return lines
 
 
 # ==============================================================================
 # 1. HOME VIEW
 # ==============================================================================
+
 @dataclass
 class HomeModel:
     snapshots: list[DatabaseSnapshot] = field(default_factory=list)
@@ -45,8 +98,21 @@ class HomeModel:
     menu_selected: int = 0
     status_msg: str = ""
     status_time: float = 0.0
+    status_severity: str = "info"
+
 
 class HomeView:
+    """
+    Home Dashboard — primary navigation hub.
+
+    UX Best Practices enforced:
+      - Master-detail layout (list on left, details on right)
+      - Selected item is immediately highlighted
+      - Keyboard shortcuts prominently displayed in footer
+      - Status messages with semantic color coding
+      - Empty state handling with clear guidance
+    """
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.m = HomeModel()
@@ -58,17 +124,20 @@ class HomeView:
         self.m.snapshots = scan_all(self.db_path)
         if self.m.snapshots:
             self.m.reports[self.m.snapshots[0].path] = health_check(self.m.snapshots[0])
-            
-    def set_status(self, msg: str) -> None:
+
+    def set_status(self, msg: str, severity: str = "success") -> None:
         self.m.status_msg = msg
         self.m.status_time = time.time()
+        self.m.status_severity = severity
 
     def update(self, key: KeyEvent) -> Optional[str]:
+        # Auto-dismiss status after 5 seconds
         if self.m.status_msg and time.time() - self.m.status_time > 5.0:
             self.m.status_msg = ""
-            
+
         cur_snap = self.m.snapshots[self.m.selected] if self.m.snapshots else None
 
+        # --- Overlay handlers ---
         if self.m.overlay == "action_menu" and cur_snap:
             is_current = cur_snap.is_current
             items = (
@@ -79,7 +148,7 @@ class HomeView:
                 ["Browse Conversations", "Restore This Backup",
                  "Compare with Current", "Delete This Backup"]
             )
-            
+
             if key.key == Key.UP:
                 self.m.menu_selected = max(0, self.m.menu_selected - 1)
             elif key.key == Key.DOWN:
@@ -95,7 +164,7 @@ class HomeView:
                     return "push:recover"
                 elif choice == "Create Backup":
                     ops.create_backup(cur_snap.path, reason="manual")
-                    self.set_status("✓ Backup created")
+                    self.set_status(f"{Icons.CHECK} Backup created")
                     self._refresh()
                 elif choice == "Merge From Another DB":
                     return "push:merge"
@@ -112,24 +181,27 @@ class HomeView:
                 elif choice == "Delete This Backup":
                     self.m.overlay = "confirm_delete"
             return None
-            
+
         elif self.m.overlay == "confirm_restore" and cur_snap:
             if key.char.lower() == "y":
                 res = ops.restore_backup(cur_snap.path, self.db_path)
-                self.set_status("✓ Restored!" if res.success else "✗ Error")
+                self.set_status(
+                    f"{Icons.CHECK} Restored!" if res.success else f"{Icons.CROSS} Error",
+                    "success" if res.success else "error"
+                )
                 self.m.overlay = "none"
                 self._refresh()
             elif key.char.lower() == "n" or key.key == Key.ESCAPE:
                 self.m.overlay = "none"
             return None
-            
+
         elif self.m.overlay == "confirm_delete" and cur_snap:
             if key.char.lower() == "y":
                 try:
                     os.remove(cur_snap.path)
-                    self.set_status("✓ Deleted")
+                    self.set_status(f"{Icons.CHECK} Deleted")
                 except Exception:
-                    self.set_status("✗ Error")
+                    self.set_status(f"{Icons.CROSS} Error", "error")
                 self.m.overlay = "none"
                 self._refresh()
             elif key.char.lower() == "n" or key.key == Key.ESCAPE:
@@ -140,14 +212,14 @@ class HomeView:
             if key.char.lower() == "y":
                 ops.create_backup(cur_snap.path, reason="before_empty")
                 ops.create_empty_db(cur_snap.path)
-                self.set_status("✓ Database reset safely")
+                self.set_status(f"{Icons.CHECK} Database reset safely")
                 self.m.overlay = "none"
                 self._refresh()
             elif key.char.lower() == "n" or key.key == Key.ESCAPE:
                 self.m.overlay = "none"
             return None
 
-        # Base navigation
+        # --- Base navigation ---
         if key.key == Key.UP:
             self.m.selected = max(0, self.m.selected - 1)
         elif key.key == Key.DOWN:
@@ -163,13 +235,13 @@ class HomeView:
             if snap.path not in self.m.reports:
                 self.m.reports[snap.path] = health_check(snap)
 
-        # Shortcut keys (independent of selection change)
+        # Shortcut keys
         if key.char.lower() == "s":
             self._refresh()
-            self.set_status("✓ Refreshed")
+            self.set_status(f"{Icons.CHECK} Refreshed")
         elif key.char.lower() == "b" and cur_snap:
             ops.create_backup(cur_snap.path, reason="manual")
-            self.set_status("✓ Backup created")
+            self.set_status(f"{Icons.CHECK} Backup created")
             self._refresh()
         elif key.char.lower() == "r":
             return "push:recover"
@@ -186,27 +258,38 @@ class HomeView:
                 self.m.menu_selected = 0
         elif key.char.lower() == "q" or key.key == Key.ESCAPE:
             return "quit"
-            
+
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Database Manager")
+        lines = _render_header(cols, "Database Manager")
         main_h = rows - 3
-        
+
         if not self.m.snapshots:
-            left = ["No databases found."]
+            # Empty state with guidance
+            left = [STYLES.muted.apply(pad("  No databases found.", int(cols * 0.55)))]
             right: list[str] = []
         else:
-            left = W.render_snapshot_table(self.m.snapshots, self.m.selected, int(cols*0.55), main_h, self.m.scroll)
+            left = self._render_db_table(int(cols * 0.55), main_h)
             snap = self.m.snapshots[self.m.selected]
             rep = self.m.reports.get(snap.path)
-            right = W.render_health_report(snap, rep, cols - int(cols*0.55) - 1)
-            
-        pane = W.render_split_pane(left, right, cols, 0.55)
-        while len(pane) < main_h:
-            pane.append(" " * cols)
-        lines.extend(pane[:main_h])
-        
+            right = self._render_detail(snap, rep, cols - int(cols * 0.55) - 1)
+
+        pane = SplitPane()
+        lw = int(cols * 0.55)
+        rw = cols - lw - 1
+        # Manual composition since we have pre-rendered lines
+        while len(left) < main_h:
+            left.append(" " * lw)
+        while len(right) < main_h:
+            right.append(" " * rw)
+        sep = STYLES.dim.apply("│")
+        for i in range(main_h):
+            l = pad(truncate(left[i] if i < len(left) else "", lw), lw)
+            r = pad(truncate(right[i] if i < len(right) else "", rw), rw)
+            lines.append(l + sep + r)
+
+        # Overlays
         cur_snap = self.m.snapshots[self.m.selected] if self.m.snapshots else None
         if cur_snap:
             if self.m.overlay == "action_menu":
@@ -218,21 +301,89 @@ class HomeView:
                     ["Browse Conversations", "Restore This Backup",
                      "Compare with Current", "Delete This Backup"]
                 )
-                _overlay(lines, W.render_action_menu(cur_snap.label, it, self.m.menu_selected, cols, rows))
+                menu = ActionMenu(title=cur_snap.label, items=it, selected=self.m.menu_selected)
+                lines = overlay_on(lines, menu.render(cols, rows))
             elif self.m.overlay == "confirm_restore":
-                _overlay(lines, W.render_confirm_modal("Restore Backup", [f"Restore {cur_snap.label}?", "A safety backup will be created."], cols, rows))
+                dlg = ConfirmDialog("Restore Backup", [f"Restore {cur_snap.label}?", "A safety backup will be created."])
+                lines = overlay_on(lines, dlg.render(cols, rows))
             elif self.m.overlay == "confirm_delete":
-                _overlay(lines, W.render_confirm_modal("Delete Backup", [f"Delete {cur_snap.label}?"], cols, rows))
+                dlg = ConfirmDialog("Delete Backup", [f"Delete {cur_snap.label}?"])
+                lines = overlay_on(lines, dlg.render(cols, rows))
             elif self.m.overlay == "confirm_reset":
-                _overlay(lines, W.render_confirm_modal("Reset Database", [f"⚠ This will ERASE all data in {cur_snap.label}.", "A backup will be created first.", "Are you sure? (Y/N)"], cols, rows))
-                
-        lines.extend(W.render_footer(cols, ["↑↓ Nav", "Enter Act", "W Workspaces", "T Storage", "? Help", "Q Quit"], self.m.status_msg))
+                dlg = ConfirmDialog("Reset Database", [
+                    f"{Icons.WARNING} This will ERASE all data in {cur_snap.label}.",
+                    "A backup will be created first.",
+                    "Are you sure?"
+                ])
+                lines = overlay_on(lines, dlg.render(cols, rows))
+
+        lines.extend(_render_footer(
+            cols,
+            [("↑↓", "Nav"), ("Enter", "Act"), ("W", "Workspaces"), ("T", "Storage"), ("?", "Help"), ("Q", "Quit")],
+            self.m.status_msg, self.m.status_severity
+        ))
         return lines
+
+    def _render_db_table(self, w: int, h: int) -> list[str]:
+        """Render database snapshot table using themed rendering."""
+        def fmt_size(b: int) -> str:
+            return f"{b / (1024 * 1024):.1f} MB"
+
+        lines: list[str] = [
+            STYLES.dim.apply("─" * w),
+            STYLES.table_header.apply(pad(f"  #  {'Label':<20} {'Size':>9} {'Convs':>5}", w)),
+            STYLES.dim.apply("─" * w)
+        ]
+
+        data_h = h - 3
+        self._sync_scroll(data_h)
+
+        for idx, snap in enumerate(list(self.m.snapshots)[self.m.scroll:self.m.scroll + data_h]):
+            real_i = idx + self.m.scroll
+            lbl = f"* {snap.label}" if snap.is_current else snap.label
+            lbl = truncate(lbl, 20)
+
+            if snap.error:
+                row = f"{real_i:>3}  {lbl:<20} {fmt_size(snap.size_bytes):>9} " + STYLES.error.apply(truncate(snap.error, 10))
+            else:
+                row = f"{real_i:>3}  {lbl:<20} {fmt_size(snap.size_bytes):>9} {snap.conversation_count:>5}"
+
+            if real_i == self.m.selected:
+                prefix = STYLES.cursor.apply(f" {Icons.POINTER} ")
+                lines.append(prefix + STYLES.table_sel.apply(pad(row, w - 3)))
+            else:
+                lines.append("   " + STYLES.body.apply(pad(row, w - 3)))
+
+        return lines
+
+    def _sync_scroll(self, visible_h: int) -> None:
+        if self.m.selected < self.m.scroll:
+            self.m.scroll = self.m.selected
+        elif self.m.selected >= self.m.scroll + visible_h:
+            self.m.scroll = self.m.selected - visible_h + 1
+
+    def _render_detail(self, snap: DatabaseSnapshot, report: HealthReport | None,
+                       w: int) -> list[str]:
+        """Render the health report detail panel."""
+        rows_data = [
+            ("Path", snap.path),
+            ("Size", f"{snap.size_bytes / (1024*1024):.1f} MB"),
+            ("Conversations", str(snap.conversation_count)),
+            ("JSON Entries", str(snap.json_entry_count)),
+        ]
+        if report:
+            rows_data.extend([
+                ("Titled", f"{snap.titled_count} ({report.titled_pct:.0f}%)"),
+                ("Workspaces", str(snap.workspace_count)),
+                ("Health", report.summary),
+            ])
+        return _render_detail_panel("Database Summary", rows_data, w)
 
 
 # ==============================================================================
 # 2. CONVERSATION BROWSER VIEW
 # ==============================================================================
+
 @dataclass
 class BrowserModel:
     convs: list[ConversationEntry] = field(default_factory=list)
@@ -245,8 +396,20 @@ class BrowserModel:
     menu_selected: int = 0
     input_text: str = ""
     status_msg: str = ""
+    status_severity: str = "info"
+
 
 class ConversationBrowserView:
+    """
+    Conversation Browser — master-detail list with search and actions.
+
+    UX Best Practices enforced:
+      - Live search filters results as you type
+      - Master-detail layout shows context without navigation
+      - Action menu on Enter for discoverable operations
+      - Consistent keyboard patterns across all views
+    """
+
     def __init__(self, target_db: str):
         self.target_db = target_db
         self.m = BrowserModel()
@@ -264,7 +427,7 @@ class ConversationBrowserView:
 
     def update(self, key: KeyEvent) -> Optional[str]:
         cur_conv = self.m.filtered[self.m.selected] if self.m.filtered else None
-        
+
         if self.m.is_searching:
             if key.key == Key.ENTER or key.key == Key.ESCAPE:
                 self.m.is_searching = False
@@ -298,12 +461,13 @@ class ConversationBrowserView:
                 elif ch == "Delete":
                     self.m.overlay = "confirm_delete"
             return None
-            
+
         if self.m.overlay == "rename_input" and cur_conv:
             if key.key == Key.ENTER:
                 if self.m.input_text.strip():
                     ops.rename_conversation(self.target_db, cur_conv.uuid, self.m.input_text.strip())
-                    self.m.status_msg = "✓ Renamed"
+                    self.m.status_msg = f"{Icons.CHECK} Renamed"
+                    self.m.status_severity = "success"
                     self.on_enter()
                 self.m.overlay = "none"
             elif key.key == Key.ESCAPE:
@@ -313,18 +477,19 @@ class ConversationBrowserView:
             elif key.key == Key.CHAR:
                 self.m.input_text += key.char
             return None
-            
+
         if self.m.overlay == "confirm_delete" and cur_conv:
             if key.char.lower() == "y":
                 ops.delete_conversation(self.target_db, cur_conv.uuid)
-                self.m.status_msg = "✓ Deleted"
+                self.m.status_msg = f"{Icons.CHECK} Deleted"
+                self.m.status_severity = "success"
                 self.m.overlay = "none"
                 self.on_enter()
             elif key.char.lower() == "n" or key.key == Key.ESCAPE:
                 self.m.overlay = "none"
             return None
 
-        # Base nav
+        # Base navigation
         if key.key == Key.UP:
             self.m.selected = max(0, self.m.selected - 1)
         elif key.key == Key.DOWN:
@@ -346,8 +511,8 @@ class ConversationBrowserView:
         elif key.key == Key.ESCAPE:
             return "back"
 
-        # Keep scroll in sync with selection
-        visible_h = max(1, 20)  # approximate visible rows for conversation table
+        # Keep scroll in sync
+        visible_h = max(1, 20)
         if self.m.selected < self.m.scroll:
             self.m.scroll = self.m.selected
         elif self.m.selected >= self.m.scroll + visible_h:
@@ -356,41 +521,95 @@ class ConversationBrowserView:
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, f"Browsing {os.path.basename(self.target_db)}")
+        lines = _render_header(cols, f"Browsing {os.path.basename(self.target_db)}")
         main_h = rows - 3
-        
-        left = W.render_conversation_table(self.m.filtered, self.m.selected, int(cols*0.55), main_h, self.m.scroll)
+
+        left = self._render_conv_table(int(cols * 0.55), main_h)
         cur_conv = self.m.filtered[self.m.selected] if self.m.filtered else None
-        right = W.render_conversation_detail(cur_conv, cols - int(cols*0.55) - 1)
-            
-        pane = W.render_split_pane(left, right, cols, 0.55)
-        while len(pane) < main_h:
-            pane.append(" " * cols)
-        lines.extend(pane[:main_h])
-        
+        right = self._render_conv_detail(cur_conv, cols - int(cols * 0.55) - 1)
+
+        lw = int(cols * 0.55)
+        rw = cols - lw - 1
+        while len(left) < main_h:
+            left.append(" " * lw)
+        while len(right) < main_h:
+            right.append(" " * rw)
+        sep = STYLES.dim.apply("│")
+        for i in range(main_h):
+            l = pad(truncate(left[i], lw), lw)
+            r = pad(truncate(right[i], rw), rw)
+            lines.append(l + sep + r)
+
         if cur_conv:
             if self.m.overlay == "action_menu":
-                _overlay(lines, W.render_action_menu("Options", ["Inspect Raw Payload", "Rename", "Delete"], self.m.menu_selected, cols, rows))
+                menu = ActionMenu(title="Options", items=["Inspect Raw Payload", "Rename", "Delete"], selected=self.m.menu_selected)
+                lines = overlay_on(lines, menu.render(cols, rows))
             elif self.m.overlay == "confirm_delete":
-                _overlay(lines, W.render_confirm_modal("Delete", [f"Delete '{cur_conv.title}'?"], cols, rows))
+                dlg = ConfirmDialog("Delete", [f"Delete '{cur_conv.title}'?"])
+                lines = overlay_on(lines, dlg.render(cols, rows))
             elif self.m.overlay == "rename_input":
-                _overlay(lines, W.render_text_input("Rename", "New title:", self.m.input_text, cols, rows))
+                modal = Modal(
+                    title="Rename", body_lines=["New title:", f"  {self.m.input_text}{STYLES.cursor.apply('█')}"],
+                    hints="Enter Save    Esc Cancel"
+                )
+                lines = overlay_on(lines, modal.render(cols, rows))
 
-        stat = f"/ Filter: {self.m.search}█" if self.m.is_searching else self.m.status_msg
-        lines.extend(W.render_footer(cols, ["↑↓ Nav", "Enter Act", "/ Search", "Esc Back"], stat))
+        stat = f"/ Filter: {self.m.search}{STYLES.cursor.apply('█')}" if self.m.is_searching else self.m.status_msg
+        sev = "info" if self.m.is_searching else self.m.status_severity
+        lines.extend(_render_footer(
+            cols,
+            [("↑↓", "Nav"), ("Enter", "Act"), ("/", "Search"), ("Esc", "Back")],
+            stat, sev
+        ))
         return lines
+
+    def _render_conv_table(self, w: int, h: int) -> list[str]:
+        lines = [
+            STYLES.dim.apply("─" * w),
+            STYLES.table_header.apply(pad(f"  #  Title", w)),
+            STYLES.dim.apply("─" * w)
+        ]
+        title_w = w - 8
+        data_h = h - 3
+        for idx, c in enumerate(list(self.m.filtered)[self.m.scroll:self.m.scroll + data_h]):
+            real_i = idx + self.m.scroll
+            title = truncate(c.title, title_w)
+            if real_i == self.m.selected:
+                prefix = STYLES.cursor.apply(f" {Icons.POINTER} ")
+                lines.append(prefix + STYLES.table_sel.apply(pad(f"{real_i:>3}  {title}", w - 3)))
+            else:
+                lines.append("   " + STYLES.body.apply(pad(f"{real_i:>3}  {title}", w - 3)))
+        return lines
+
+    def _render_conv_detail(self, c: ConversationEntry | None, w: int) -> list[str]:
+        if not c:
+            return [STYLES.muted.apply("No conversation selected.")]
+        tstamp = f"{Icons.CHECK} Yes" if c.has_timestamps else f"{Icons.CROSS} No"
+        jsync = f"{Icons.CHECK} Yes" if c.json_synced else f"{Icons.CROSS} No"
+        return _render_detail_panel("Conversation Details", [
+            ("UUID", c.uuid),
+            ("Title", c.title),
+            ("Workspace", c.workspace_uri or "None"),
+            ("Timestamps", tstamp),
+            ("JSON Synced", jsync),
+            ("Stale Flag", "Yes" if c.is_stale else "No"),
+        ], w)
 
 
 # ==============================================================================
 # 3. TEXT VIEWER (PAYLOAD INSPECTION)
 # ==============================================================================
+
 @dataclass
 class DataViewModel:
     payload_lines: list[str] = field(default_factory=list)
     scroll: int = 0
     uuid: str = ""
 
+
 class ConversationDataView:
+    """Raw JSON payload viewer with line numbers and scrolling."""
+
     def __init__(self, db_path: str, uuid: str):
         self.db_path = db_path
         self.uuid = uuid
@@ -410,27 +629,36 @@ class ConversationDataView:
             self.m.scroll = max(0, self.m.scroll - 20)
         elif key.key == Key.PAGE_DOWN:
             self.m.scroll = min(len(self.m.payload_lines) - 1, self.m.scroll + 20)
+        elif key.key == Key.HOME:
+            self.m.scroll = 0
+        elif key.key == Key.END:
+            self.m.scroll = max(0, len(self.m.payload_lines) - 1)
         elif key.key == Key.ESCAPE:
             return "back"
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, f"Raw JSON Payload: {self.uuid[:8]}")
+        lines = _render_header(cols, f"Raw JSON Payload: {self.uuid[:8]}")
         main_h = rows - 3
-        
-        textpane = W.render_text_viewer(self.m.payload_lines, self.m.scroll, cols, main_h)
-        while len(textpane) < main_h:
-            textpane.append(" " * cols)
-        lines.extend(textpane[:main_h])
-        
-        lines.extend(W.render_footer(cols, ["↑↓ Scroll", "Esc Back"], f"Lines: {len(self.m.payload_lines)}"))
+
+        viewer = TextViewer(content_lines=self.m.payload_lines, scroll=self.m.scroll)
+        textpane = viewer.render(cols, main_h)
+        lines.extend(textpane)
+
+        lines.extend(_render_footer(
+            cols,
+            [("↑↓", "Scroll"), ("PgUp/Dn", "Page"), ("Home/End", "Jump"), ("Esc", "Back")],
+            f"Lines: {len(self.m.payload_lines)}"
+        ))
         return lines
 
 
 # ==============================================================================
 # 4. RECOVERY WIZARD — Enterprise 6-Phase Pipeline
 # ==============================================================================
+
 RECOVERY_PHASES = ["Backup", "Discovery", "Titles", "Injection", "JSON", "Done"]
+
 
 @dataclass
 class RecoveryModel:
@@ -439,7 +667,10 @@ class RecoveryModel:
     phase_statuses: list[str] = field(default_factory=lambda: [""] * 6)
     res: Optional[RecoveryResult] = None
 
+
 class RecoveryWizardView:
+    """Recovery pipeline wizard with animated progress indicator."""
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.m = RecoveryModel()
@@ -451,21 +682,14 @@ class RecoveryWizardView:
         if idx < len(self.m.phase_statuses):
             self.m.phase_statuses[idx] = msg
 
-    def _needs_paint(self) -> bool:
-        """Signal that paint() should be called before the next blocking op."""
-        return self.m.phase == "running"
-
     def update(self, key: KeyEvent) -> Optional[str]:
         if self.m.phase == "ready":
             if key.key == Key.ENTER:
-                # Set phase to "running" — the view() will render "Working…"
-                # and the App loop will call paint() before the next update().
                 self.m.phase = "running"
                 self.m.phase_idx = 0
             elif key.key == Key.ESCAPE:
                 return "back"
         elif self.m.phase == "running":
-            # Execute the pipeline on the NEXT update cycle (after paint)
             res = ops.run_recovery_pipeline(
                 self.db_path,
                 os.path.join(EnvironmentResolver.get_gemini_base_path(), "conversations"),
@@ -480,27 +704,33 @@ class RecoveryWizardView:
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Full Recovery Pipeline")
+        lines = _render_header(cols, "Full Recovery Pipeline")
         main_h = rows - 3
         pane: list[str] = []
 
-        # Pipeline indicator
+        # Pipeline indicator using WizardPipeline component
         pane.append("")
-        pane.extend(W.render_wizard_pipeline(RECOVERY_PHASES, self.m.phase_idx, self.m.phase_statuses, cols))
+        pipeline = WizardPipeline(
+            steps=RECOVERY_PHASES,
+            current=self.m.phase_idx,
+            statuses=self.m.phase_statuses,
+        )
+        pane.extend(pipeline.render(cols, 3))
         pane.append("")
 
         if self.m.phase == "ready":
             pane.append(f"  Target: {self.db_path}")
             pane.append("")
-            pane.append(f"  {W.C.DIM}This will rebuild ALL conversations from .pb files,{W.C.RESET}")
-            pane.append(f"  {W.C.DIM}resolve titles from brain artifacts, and synchronize{W.C.RESET}")
-            pane.append(f"  {W.C.DIM}the JSON index. A full backup is created first.{W.C.RESET}")
+            pane.append(STYLES.dim.apply("  This will rebuild ALL conversations from .pb files,"))
+            pane.append(STYLES.dim.apply("  resolve titles from brain artifacts, and synchronize"))
+            pane.append(STYLES.dim.apply("  the JSON index. A full backup is created first."))
             pane.append("")
-            pane.append(f"  {W.C.BRIGHT_CYAN}Press Enter to begin.{W.C.RESET}")
+            pane.append(STYLES.info.apply(f"  {Icons.POINTER} Press Enter to begin."))
         elif self.m.phase == "running":
-            pane.append(f"  {W.C.YELLOW}Running... (Please wait){W.C.RESET}")
+            spinner = Spinner(label="Running pipeline... (Please wait)")
+            pane.extend(spinner.render(cols, 1))
         elif self.m.phase == "done" and self.m.res:
-            pane.append(f"  {W.C.BRIGHT_GREEN}✓ Recovery Complete{W.C.RESET}")
+            pane.append(STYLES.success.apply(f"  {Icons.CHECK} Recovery Complete"))
             pane.append("")
             pane.append(f"  Conversations rebuilt: {self.m.res.conversations_rebuilt}")
             pane.append(f"  Workspaces mapped:    {self.m.res.workspaces_mapped}")
@@ -509,24 +739,26 @@ class RecoveryWizardView:
             pane.append(f"  JSON entries patched:  {self.m.res.json_patched}")
             pane.append(f"  JSON entries deleted:  {self.m.res.json_deleted}")
             if self.m.res.backup_path:
-                pane.append(f"  Backup at: {W.C.DIM}{self.m.res.backup_path}{W.C.RESET}")
+                pane.append(f"  Backup at: {STYLES.dim.apply(self.m.res.backup_path)}")
         elif self.m.phase == "error" and self.m.res:
-            pane.append(f"  {W.C.RED}✗ Recovery Failed{W.C.RESET}")
+            pane.append(STYLES.error.apply(f"  {Icons.CROSS} Recovery Failed"))
             pane.append(f"  {self.m.res.error}")
             if self.m.res.backup_path:
-                pane.append(f"  Backup preserved at: {W.C.DIM}{self.m.res.backup_path}{W.C.RESET}")
-            
+                pane.append(f"  Backup preserved at: {STYLES.dim.apply(self.m.res.backup_path)}")
+
         while len(pane) < main_h:
             pane.append(" ")
         lines.extend(pane[:main_h])
-        footer_hints = ["Enter Start", "Esc Back"] if self.m.phase == "ready" else ["Enter/Esc Back"]
-        lines.extend(W.render_footer(cols, footer_hints))
+
+        footer_hints = [("Enter", "Start"), ("Esc", "Back")] if self.m.phase == "ready" else [("Enter/Esc", "Back")]
+        lines.extend(_render_footer(cols, footer_hints))
         return lines
 
 
 # ==============================================================================
 # 5. MERGE WIZARD — Enterprise Diff & Cherry-Pick
 # ==============================================================================
+
 @dataclass
 class MergeModel:
     step: str = "source_select"
@@ -537,7 +769,10 @@ class MergeModel:
     strategy: str = "additive"
     res: Optional[MergeResult] = None
 
+
 class MergeWizardView:
+    """Merge wizard with diff preview, cherry-pick, and strategy selection."""
+
     def __init__(self, target_db: str, source_db: str = ""):
         self.target_db = target_db
         self.m = MergeModel()
@@ -551,7 +786,6 @@ class MergeWizardView:
 
     def _load_diff(self) -> None:
         self.m.diff = ops.compute_merge_diff(self.m.source_path, self.target_db)
-        # Auto-select all source-only (new) conversations
         self.m.selected_uuids = set(self.m.diff.source_only)
         self.m.step = "diff_preview"
         self.m.cursor = 0
@@ -626,65 +860,100 @@ class MergeWizardView:
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Merge Databases")
+        lines = _render_header(cols, "Merge Databases")
         main_h = rows - 3
         pane: list[str] = []
 
         if self.m.step == "source_select":
-            pane.append("  Enter Source DB Path:")
-            pane.append(f"  {self.m.source_path}█")
+            pane.append(STYLES.body.apply("  Enter Source DB Path:"))
+            pane.append(f"  {self.m.source_path}{STYLES.cursor.apply('█')}")
             pane.append("")
-            pane.append(f"  {W.C.DIM}Paste or type the full path to a backup or other state.vscdb{W.C.RESET}")
+            pane.append(STYLES.dim.apply("  Paste or type the full path to a backup or other state.vscdb"))
 
         elif self.m.step == "loading":
-            pane.append("  Loading diff...")
+            spinner = Spinner(label="Loading diff...")
+            pane.extend(spinner.render(cols, 1))
 
         elif self.m.step == "diff_preview" and self.m.diff:
-            pane.extend(W.render_diff_table(
-                self.m.diff, self.m.selected_uuids, self.m.cursor,
-                cols, main_h - 2
-            ))
+            pane.extend(self._render_diff_table(cols, main_h - 2))
             pane.append("")
-            pane.append(f"  {W.C.DIM}Space=Toggle  A=All  N=None  Enter=Confirm{W.C.RESET}")
+            pane.append(STYLES.dim.apply(f"  Space=Toggle  A=All  N=None  Enter=Confirm"))
 
         elif self.m.step == "confirm":
             count = len(self.m.selected_uuids)
-            pane.append(f"  {W.C.BOLD}Ready to Merge{W.C.RESET}")
+            pane.append(STYLES.emphasis.apply(f"  Ready to Merge"))
             pane.append(f"  Selected: {count} conversation(s)")
             pane.append("")
-            strat_1 = f"{W.C.BRIGHT_CYAN}▸{W.C.RESET}" if self.m.strategy == "additive" else " "
-            strat_2 = f"{W.C.BRIGHT_CYAN}▸{W.C.RESET}" if self.m.strategy == "overwrite" else " "
+            strat_1 = STYLES.cursor.apply(Icons.POINTER) if self.m.strategy == "additive" else " "
+            strat_2 = STYLES.cursor.apply(Icons.POINTER) if self.m.strategy == "overwrite" else " "
             pane.append(f"  {strat_1} [1] Additive  — only add missing (safe)")
             pane.append(f"  {strat_2} [2] Overwrite — replace shared entries (destructive)")
             pane.append("")
-            pane.append(f"  {W.C.BRIGHT_CYAN}Press Enter to execute merge.{W.C.RESET}")
+            pane.append(STYLES.info.apply(f"  {Icons.POINTER} Press Enter to execute merge."))
 
         elif self.m.step == "done" and self.m.res:
             if self.m.res.success:
-                pane.append(f"  {W.C.BRIGHT_GREEN}✓ Merge Complete{W.C.RESET}")
+                pane.append(STYLES.success.apply(f"  {Icons.CHECK} Merge Complete"))
                 pane.append(f"  Added: {self.m.res.added}  Updated: {self.m.res.updated}  Skipped: {self.m.res.skipped}")
             else:
-                pane.append(f"  {W.C.RED}✗ Merge Failed{W.C.RESET}")
+                pane.append(STYLES.error.apply(f"  {Icons.CROSS} Merge Failed"))
                 pane.append(f"  {self.m.res.error}")
             if self.m.res.backup_path:
-                pane.append(f"  Backup: {W.C.DIM}{self.m.res.backup_path}{W.C.RESET}")
+                pane.append(f"  Backup: {STYLES.dim.apply(self.m.res.backup_path)}")
 
         while len(pane) < main_h:
             pane.append(" ")
         lines.extend(pane[:main_h])
-        lines.extend(W.render_footer(cols, ["Enter Next", "Esc Back"]))
+        lines.extend(_render_footer(cols, [("Enter", "Next"), ("Esc", "Back")]))
+        return lines
+
+    def _render_diff_table(self, w: int, h: int) -> list[str]:
+        """Render the color-coded diff table with checkboxes."""
+        diff = self.m.diff
+        if not diff:
+            return []
+
+        lines = [
+            STYLES.dim.apply("─" * w),
+            STYLES.table_header.apply(
+                pad(f"  Source: {diff.source_total} · Target: {diff.target_total} · New: {len(diff.source_only)}", w)
+            ),
+            STYLES.dim.apply("─" * w),
+        ]
+
+        entries: list[tuple[str, str, str]] = []
+        for e in diff.source_only_entries:
+            entries.append((e.uuid, e.title, "new"))
+        for src_e, tgt_e in diff.shared_entries:
+            entries.append((src_e.uuid, src_e.title, "shared"))
+
+        for idx, (uid, title, kind) in enumerate(entries[:h - 3]):
+            check = STYLES.success.apply(f"[{Icons.CHECK}]") if uid in self.m.selected_uuids else STYLES.dim.apply("[ ]")
+            label = truncate(title, w - 16)
+            tag = STYLES.badge_new.apply(" NEW ") if kind == "new" else STYLES.badge_shared.apply(" SHR ")
+
+            if idx == self.m.cursor:
+                prefix = STYLES.cursor.apply(f" {Icons.POINTER} ")
+                lines.append(f"{prefix}{check} {STYLES.emphasis.apply(label)}  {tag}")
+            else:
+                lines.append(f"   {check} {label}  {tag}")
+
         return lines
 
 
 # ==============================================================================
 # 6. WORKSPACE BROWSER VIEW
 # ==============================================================================
+
 @dataclass
 class WorkspaceModel:
     diagnostics: list[WorkspaceDiagnostic] = field(default_factory=list)
     selected: int = 0
 
+
 class WorkspaceBrowserView:
+    """Workspace diagnostic viewer with health indicators."""
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.m = WorkspaceModel()
@@ -702,32 +971,87 @@ class WorkspaceBrowserView:
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Workspace Diagnostics")
+        lines = _render_header(cols, "Workspace Diagnostics")
         main_h = rows - 3
 
         if not self.m.diagnostics:
-            left = ["  No workspaces found."]
+            left = [STYLES.muted.apply("  No workspaces found.")]
             right: list[str] = []
         else:
-            left = W.render_workspace_table(self.m.diagnostics, self.m.selected, int(cols * 0.55), main_h)
+            left = self._render_ws_table(int(cols * 0.55), main_h)
             diag = self.m.diagnostics[self.m.selected] if self.m.diagnostics else None
-            right = W.render_workspace_detail(diag, cols - int(cols * 0.55) - 1)
+            right = self._render_ws_detail(diag, cols - int(cols * 0.55) - 1)
 
-        pane = W.render_split_pane(left, right, cols, 0.55)
-        while len(pane) < main_h:
-            pane.append(" " * cols)
-        lines.extend(pane[:main_h])
+        lw = int(cols * 0.55)
+        rw = cols - lw - 1
+        while len(left) < main_h:
+            left.append(" " * lw)
+        while len(right) < main_h:
+            right.append(" " * rw)
+        sep = STYLES.dim.apply("│")
+        for i in range(main_h):
+            l = pad(truncate(left[i], lw), lw)
+            r = pad(truncate(right[i], rw), rw)
+            lines.append(l + sep + r)
 
         healthy = sum(1 for d in self.m.diagnostics if d.exists_on_disk and d.is_accessible)
         total = len(self.m.diagnostics)
-        stat = f"Healthy: {healthy}/{total}"
-        lines.extend(W.render_footer(cols, ["↑↓ Nav", "Esc Back"], stat))
+        lines.extend(_render_footer(
+            cols,
+            [("↑↓", "Nav"), ("Esc", "Back")],
+            f"Healthy: {healthy}/{total}"
+        ))
         return lines
+
+    def _render_ws_table(self, w: int, h: int) -> list[str]:
+        lines = [
+            STYLES.dim.apply("─" * w),
+            STYLES.table_header.apply(pad("  URI / Path", w)),
+            STYLES.dim.apply("─" * w),
+        ]
+        for idx, d in enumerate(self.m.diagnostics[:h - 3]):
+            if d.exists_on_disk and d.is_accessible:
+                icon = STYLES.success.apply(Icons.CIRCLE_FILL)
+            elif d.exists_on_disk:
+                icon = STYLES.warning.apply(Icons.CIRCLE_FILL)
+            else:
+                icon = STYLES.error.apply(Icons.CIRCLE_FILL)
+
+            path_str = truncate(d.decoded_path, w - 10)
+            if idx == self.m.selected:
+                prefix = STYLES.cursor.apply(f" {Icons.POINTER} ")
+                lines.append(f"{prefix}{icon} {STYLES.table_sel.apply(pad(path_str, w - 6))}")
+            else:
+                lines.append(f"   {icon} {STYLES.body.apply(pad(path_str, w - 6))}")
+        return lines
+
+    def _render_ws_detail(self, diag: WorkspaceDiagnostic | None, w: int) -> list[str]:
+        if not diag:
+            return [STYLES.muted.apply("No workspace selected.")]
+        if diag.exists_on_disk and diag.is_accessible:
+            status = STYLES.success.apply(f"{Icons.CHECK} OK")
+        elif diag.exists_on_disk:
+            status = STYLES.warning.apply(f"{Icons.WARNING} Read-Only")
+        else:
+            status = STYLES.error.apply(f"{Icons.CROSS} Missing")
+
+        detail_lines = _render_detail_panel("Workspace Detail", [
+            ("URI", diag.uri),
+            ("Path", diag.decoded_path),
+            ("Status", status),
+            ("Bound", f"{len(diag.bound_conversations)} conversation(s)"),
+        ], w)
+        for uid in diag.bound_conversations[:5]:
+            detail_lines.append(STYLES.dim.apply(f"    {Icons.CIRCLE_OPEN} {uid[:8]}…"))
+        if len(diag.bound_conversations) > 5:
+            detail_lines.append(STYLES.dim.apply(f"    … and {len(diag.bound_conversations) - 5} more"))
+        return detail_lines
 
 
 # ==============================================================================
 # 7. STORAGE BROWSER VIEW
 # ==============================================================================
+
 @dataclass
 class StorageModel:
     entries: list[StorageEntry] = field(default_factory=list)
@@ -737,8 +1061,12 @@ class StorageModel:
     overlay: str = "none"
     input_text: str = ""
     status_msg: str = ""
+    status_severity: str = "info"
+
 
 class StorageBrowserView:
+    """Storage.json browser with tree display and inline editing."""
+
     def __init__(self, storage_dir: str):
         self.storage_dir = storage_dir
         self.m = StorageModel()
@@ -754,7 +1082,8 @@ class StorageBrowserView:
                     entry = self.m.entries[self.m.selected]
                     sm.patch_key(self.m.raw_data, entry.key, self.m.input_text.strip())
                     sm.write_storage(self.storage_dir, self.m.raw_data, reason="storage_edit")
-                    self.m.status_msg = "✓ Saved"
+                    self.m.status_msg = f"{Icons.CHECK} Saved"
+                    self.m.status_severity = "success"
                     self.on_enter()
                 self.m.overlay = "none"
             elif key.key == Key.ESCAPE:
@@ -771,7 +1100,8 @@ class StorageBrowserView:
                     entry = self.m.entries[self.m.selected]
                     sm.delete_key(self.m.raw_data, entry.key)
                     sm.write_storage(self.storage_dir, self.m.raw_data, reason="storage_del")
-                    self.m.status_msg = "✓ Deleted"
+                    self.m.status_msg = f"{Icons.CHECK} Deleted"
+                    self.m.status_severity = "success"
                     self.on_enter()
                 self.m.overlay = "none"
             elif key.char.lower() == "n" or key.key == Key.ESCAPE:
@@ -795,7 +1125,7 @@ class StorageBrowserView:
         elif key.key == Key.ESCAPE:
             return "back"
 
-        # Keep scroll in sync with selection
+        # Keep scroll in sync
         visible_h = max(1, 20)
         if self.m.selected < self.m.scroll:
             self.m.scroll = self.m.selected
@@ -805,66 +1135,162 @@ class StorageBrowserView:
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Storage.json Browser")
+        lines = _render_header(cols, "Storage.json Browser")
         main_h = rows - 3
 
         if not self.m.entries:
-            left = ["  storage.json is empty or missing."]
+            left = [STYLES.muted.apply("  storage.json is empty or missing.")]
             right: list[str] = []
         else:
-            left = W.render_storage_tree(self.m.entries, self.m.selected, self.m.scroll, int(cols * 0.55), main_h)
+            left = self._render_tree(int(cols * 0.55), main_h)
             entry = self.m.entries[self.m.selected] if self.m.entries else None
-            right = W.render_storage_detail(entry, cols - int(cols * 0.55) - 1)
+            right = self._render_entry_detail(entry, cols - int(cols * 0.55) - 1)
 
-        pane = W.render_split_pane(left, right, cols, 0.55)
-        while len(pane) < main_h:
-            pane.append(" " * cols)
-        lines.extend(pane[:main_h])
+        lw = int(cols * 0.55)
+        rw = cols - lw - 1
+        while len(left) < main_h:
+            left.append(" " * lw)
+        while len(right) < main_h:
+            right.append(" " * rw)
+        sep = STYLES.dim.apply("│")
+        for i in range(main_h):
+            l = pad(truncate(left[i], lw), lw)
+            r = pad(truncate(right[i], rw), rw)
+            lines.append(l + sep + r)
 
         if self.m.overlay == "edit_value":
-            _overlay(lines, W.render_text_input("Edit Value", "New value:", self.m.input_text, cols, rows))
+            modal = Modal(
+                title="Edit Value", body_lines=["New value:", f"  {self.m.input_text}{STYLES.cursor.apply('█')}"],
+                hints="Enter Save    Esc Cancel"
+            )
+            lines = overlay_on(lines, modal.render(cols, rows))
         elif self.m.overlay == "confirm_delete":
             entry = self.m.entries[self.m.selected] if self.m.entries else None
             key_name = entry.key if entry else "?"
-            _overlay(lines, W.render_confirm_modal("Delete Key", [f"Delete '{key_name}'?"], cols, rows))
+            dlg = ConfirmDialog("Delete Key", [f"Delete '{key_name}'?"])
+            lines = overlay_on(lines, dlg.render(cols, rows))
 
-        lines.extend(W.render_footer(cols, ["↑↓ Nav", "E Edit", "D Delete", "Esc Back"], self.m.status_msg))
+        lines.extend(_render_footer(
+            cols,
+            [("↑↓", "Nav"), ("E", "Edit"), ("D", "Delete"), ("Esc", "Back")],
+            self.m.status_msg, self.m.status_severity
+        ))
         return lines
+
+    def _render_tree(self, w: int, h: int) -> list[str]:
+        lines = [
+            STYLES.dim.apply("─" * w),
+            STYLES.table_header.apply(pad("  Key", w)),
+            STYLES.dim.apply("─" * w),
+        ]
+        visible = list(self.m.entries)[self.m.scroll:self.m.scroll + h - 3]
+        for idx, e in enumerate(visible):
+            real_i = idx + self.m.scroll
+            depth = e.key.count(".")
+            indent = "  " * depth
+            short_key = e.key.rsplit(".", 1)[-1] if "." in e.key else e.key
+            display = f"{indent}{short_key}"
+
+            type_badge = ""
+            if e.value_type == "object":
+                type_badge = STYLES.dim.apply(f" {e.value_preview}")
+            elif e.value_type == "array":
+                type_badge = STYLES.info.apply(f" {e.value_preview}")
+
+            display = truncate(display, w - 20) + type_badge
+
+            if real_i == self.m.selected:
+                prefix = STYLES.cursor.apply(f" {Icons.POINTER} ")
+                lines.append(f"{prefix}{STYLES.tree_sel.apply(pad(display, w - 3))}")
+            else:
+                lines.append(f"   {STYLES.tree_leaf.apply(pad(display, w - 3))}")
+        return lines
+
+    def _render_entry_detail(self, entry: StorageEntry | None, w: int) -> list[str]:
+        if not entry:
+            return [STYLES.muted.apply("No key selected.")]
+        return _render_detail_panel("Storage Key Detail", [
+            ("Key", entry.key),
+            ("Type", entry.value_type),
+            ("Value", entry.value_preview),
+        ], w)
 
 
 # ==============================================================================
 # 8. HELP OVERLAY
 # ==============================================================================
+
 class HelpOverlay:
+    """
+    Help screen with categorized keyboard shortcuts.
+
+    UX Best Practice: Context-appropriate help is always accessible via
+    the universal '?' shortcut. Organized by category for scannability.
+    """
+
     def update(self, key: KeyEvent) -> Optional[str]:
         if key.key in (Key.ESCAPE, Key.ENTER) or key.char == "?":
             return "back"
         return None
 
     def view(self, cols: int, rows: int) -> list[str]:
-        lines = W.render_header(cols, "Help & Instructions")
-        pane = [
-            f"  {W.C.BOLD}Keyboard Shortcuts{W.C.RESET}",
-            "  ↑↓ / PgUp PgDn  Navigate",
-            "  Enter           Select / Action Menu",
-            "  Esc             Back / Cancel",
-            "  ?               Toggle Help",
-            "  S               Refresh Scan",
-            "  B               Create Manual Backup",
-            "  R               Run Recovery",
-            "  W               Workspace Diagnostics",
-            "  T               Storage.json Browser",
-            "  /               Search / Filter",
-            "  D               Delete item",
-            "  N               Rename item",
-            "",
-            f"  {W.C.BOLD}Merge View{W.C.RESET}",
-            "  Space           Toggle conversation selection",
-            "  A               Select all",
-            "  N               Select none",
+        lines = _render_header(cols, "Help & Keyboard Shortcuts")
+        pane: list[str] = []
+
+        # Navigation section
+        pane.append("")
+        pane.append(STYLES.title.apply("  Navigation"))
+        pane.append(STYLES.dim.apply("  " + "─" * 40))
+        shortcuts_nav = [
+            ("↑ / ↓", "Navigate items"),
+            ("PgUp / PgDn", "Navigate by page"),
+            ("Home / End", "Jump to first/last"),
+            ("Enter", "Select / Action menu"),
+            ("Esc", "Back / Cancel"),
+            ("Tab", "Next focus"),
         ]
+        for key, desc in shortcuts_nav:
+            pane.append(f"  {STYLES.cursor.apply(pad(key, 14))} {desc}")
+
+        pane.append("")
+        pane.append(STYLES.title.apply("  Home View"))
+        pane.append(STYLES.dim.apply("  " + "─" * 40))
+        shortcuts_home = [
+            ("S", "Refresh database scan"),
+            ("B", "Create manual backup"),
+            ("R", "Run full recovery"),
+            ("W", "Workspace diagnostics"),
+            ("T", "Storage.json browser"),
+            ("?", "Toggle this help"),
+            ("Q", "Quit application"),
+        ]
+        for key, desc in shortcuts_home:
+            pane.append(f"  {STYLES.cursor.apply(pad(key, 14))} {desc}")
+
+        pane.append("")
+        pane.append(STYLES.title.apply("  Browser View"))
+        pane.append(STYLES.dim.apply("  " + "─" * 40))
+        shortcuts_browser = [
+            ("/", "Search / filter"),
+            ("D", "Delete item"),
+            ("N", "Rename item"),
+        ]
+        for key, desc in shortcuts_browser:
+            pane.append(f"  {STYLES.cursor.apply(pad(key, 14))} {desc}")
+
+        pane.append("")
+        pane.append(STYLES.title.apply("  Merge View"))
+        pane.append(STYLES.dim.apply("  " + "─" * 40))
+        shortcuts_merge = [
+            ("Space", "Toggle conversation"),
+            ("A", "Select all"),
+            ("N", "Select none"),
+        ]
+        for key, desc in shortcuts_merge:
+            pane.append(f"  {STYLES.cursor.apply(pad(key, 14))} {desc}")
+
         while len(pane) < rows - 3:
             pane.append(" ")
-        lines.extend(pane[:rows-3])
-        lines.extend(W.render_footer(cols, ["Esc/Enter Close"]))
+        lines.extend(pane[:rows - 3])
+        lines.extend(_render_footer(cols, [("Esc/Enter", "Close")]))
         return lines
