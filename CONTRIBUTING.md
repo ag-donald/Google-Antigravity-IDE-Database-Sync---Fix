@@ -37,8 +37,8 @@ Open an issue with the `enhancement` label describing:
    ```
 5. Run the full test suite:
    ```bash
-   python -m unittest tests.test_core -v
-   ```
+    python -m unittest discover -s tests -v
+    ```
 6. Test on your platform (Windows, macOS, or Linux)
 7. Commit your changes: `git commit -m "Add: description of change"`
 8. Push to your fork: `git push origin feature/your-feature`
@@ -70,17 +70,22 @@ src/
 │   ├── diagnostic.py
 │   ├── storage_manager.py
 │   └── lifecycle.py
-├── ui_tui/              ← Full-screen Terminal UI (MVU Architecture)
-│   ├── app.py
-│   ├── engine.py
-│   ├── widgets.py
-│   └── views.py
+├── ui_tui/              ← Enterprise-grade Component-based TUI Framework
+│   ├── theme.py         ← Semantic colors, styles, gradients, icons
+│   ├── events.py        ← EventBus, KeyBindingManager, FocusManager
+│   ├── core.py          ← Component base, constraint sizing, layout engine
+│   ├── components.py    ← 20+ production UI components
+│   ├── animation.py     ← Easing functions, AnimatedValue, AnimationManager
+│   ├── engine.py        ← Double-buffered terminal I/O
+│   ├── app.py           ← Animation-aware MVU event loop
+│   └── views.py         ← 8 MVU screens
 └── ui_headless/         ← Command-line Interface and Interactive Prompts
     ├── cli_parser.py
     ├── controller.py
     └── logger.py
 tests/
-└── test_core.py         ← Unit tests (52 tests)
+├── test_core.py         ← Core logic tests (52 tests)
+└── test_tui.py          ← TUI framework tests (75 tests)
 ```
 
 ### Commit Message Format

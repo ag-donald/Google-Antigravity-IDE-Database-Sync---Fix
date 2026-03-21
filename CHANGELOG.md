@@ -8,6 +8,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [8.6.0] - 2026-03-21
+
+### Added — Enterprise TUI Framework
+- **`theme.py`** — Semantic color palette with truecolor/256-color/basic fallback, composable `Style` objects, gradient generator, box-drawing character sets (thin/thick/double/rounded), curated icon library (spinners, status indicators, navigation symbols), and WCAG-inspired contrast validation.
+- **`events.py`** — Typed event bus (pub/sub) with propagation control, context-sensitive `KeyBindingManager` (global + per-view bindings), and `FocusManager` with wrapping tab-order cycling.
+- **`core.py`** — Abstract `Component` base class with lifecycle hooks (`on_mount`/`on_unmount`/`on_focus`/`on_blur`), constraint-based sizing (`Fixed`/`Percent`/`Fill`), flex-like layout containers (`Row`, `Column`, `Box`), and ANSI-aware text utilities (`visible_len`, `truncate`, `pad`, `pad_center`, `pad_right`).
+- **`components.py`** — 20+ production-grade UI components: `Header`, `StatusBar`, `DataTable`, `TreeView`, `TextInput`, `TextViewer`, `Modal`, `ConfirmDialog`, `ActionMenu`, `ProgressBar`, `Spinner`, `ToastManager`, `Tabs`, `Breadcrumb`, `SearchBar`, `Badge`, `Sparkline`, `SplitPane`, `ScrollView`, `WizardPipeline`, `Divider`.
+- **`animation.py`** — 26 easing functions (linear, quad, cubic, quart, quint, bounce, elastic, back, expo, circ, sine), `AnimatedValue` with smooth interpolation, `Transition` tracking, `AnimationManager` with adaptive frame control, and built-in effects (fade-in, slide, typewriter, pulse).
+- **`tests/test_tui.py`** — 75 unit tests covering theme colors, style composition, ANSI utilities, layout constraint solving, component rendering, easing math, animated value interpolation, event bus pub/sub, key binding resolution, and focus management.
+
+### Changed — Refactored Modules
+- **`engine.py`** — Complete rewrite: double-buffered rendering with line-level diffing (eliminates flicker), non-blocking `poll_key(timeout_ms)` for animation-compatible input, adaptive frame timing (30 FPS active / 5 FPS idle), terminal resize detection, extended key support (Ctrl combos, F1-F5, Shift+Tab, Home/End/PageUp/PageDown/Delete), and terminal title control.
+- **`app.py`** — Refactored with animation-aware event loop (blocking when idle, polling at ~30 FPS during animations), `AnimationManager` integration, global `ToastManager` overlay on every frame, screen transition invalidation, and terminal title setting.
+- **`views.py`** — All 8 views converted from inline ANSI strings to the component framework: `HomeView` (Header + DataTable + SplitPane + ActionMenu + ConfirmDialog), `ConversationBrowserView` (DataTable + SearchBar + SplitPane + Modal), `ConversationDataView` (TextViewer), `RecoveryWizardView` (WizardPipeline + Spinner), `MergeWizardView` (DataTable + Badge), `WorkspaceBrowserView` (DataTable + health indicators), `StorageBrowserView` (TreeView + Modal), `HelpOverlay` (categorized shortcuts).
+- **`__init__.py`** — Updated package docstring to reflect new layered architecture.
+
+### UX Best Practices Enforced
+- Semantic color tokens (intent-driven: `success`/`warning`/`error`, not `green`/`yellow`/`red`)
+- WCAG-inspired contrast validation via `contrast_ratio_approx()`
+- Consistent visual hierarchy through named style presets (`header` > `subheader` > `body` > `muted`)
+- Discoverable key hints always visible in StatusBar footer
+- Focus management with wrapping tab order and visual indicators
+- Master-detail layout pattern throughout all browsing views
+- Non-blocking toast notifications with severity-coded icons
+- Adaptive frame rate (zero CPU when idle, smooth animation when active)
+
 ## [8.5.1] - 2026-03-20
 
 ### Fixed

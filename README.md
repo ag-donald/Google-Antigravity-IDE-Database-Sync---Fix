@@ -151,15 +151,22 @@ build_release.py              ← Builds the cross-platform .pyz zipapp
 │   │   ├── diagnostic.py
 │   │   ├── storage_manager.py
 │   │   └── lifecycle.py
-│   ├── ui_tui/               ← Full-screen Terminal UI (MVU Architecture)
-│   │   ├── app.py
-│   │   ├── engine.py
-│   │   ├── widgets.py
-│   │   └── views.py
+│   ├── ui_tui/               ← Enterprise-grade Component-based TUI Framework
+│   │   ├── theme.py          ← Semantic colors, styles, gradients, icons, WCAG contrast
+│   │   ├── events.py         ← EventBus, KeyBindingManager, FocusManager
+│   │   ├── core.py           ← Component base, constraint sizing, Row/Column/Box layout
+│   │   ├── components.py     ← 20+ production UI components
+│   │   ├── animation.py      ← 26 easing functions, AnimatedValue, AnimationManager
+│   │   ├── engine.py         ← Double-buffered terminal I/O with non-blocking input
+│   │   ├── app.py            ← Animation-aware MVU event loop
+│   │   └── views.py          ← 8 MVU screens built with component system
 │   └── ui_headless/          ← Command-line Interface and Interactive Prompts
 │       ├── cli_parser.py
 │       ├── controller.py
 │       └── logger.py
+├── tests/
+│   ├── test_core.py          ← Core logic tests (52 tests)
+│   └── test_tui.py           ← TUI framework tests (75 tests)
 └── dist/
     └── AgmerciumRecovery.pyz ← Portable zipapp (built)
 ```
@@ -210,7 +217,7 @@ Launch with no arguments to enter the full-screen split-pane database manager:
 python antigravity_database_manager.py
 ```
 
-The TUI uses an **MVU (Model-View-Update) architecture** with 8 screens:
+The TUI uses an **MVU (Model-View-Update) architecture** powered by an enterprise-grade component framework (semantic theming, animated rendering, 20+ reusable components). It provides 8 screens:
 
 #### 1. Home — Database Dashboard
 
